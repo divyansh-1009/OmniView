@@ -1,0 +1,33 @@
+# Android Studio
+.idea/
+*.iml
+.gradle/
+local.properties
+
+# Build outputs
+build/
+app/build/
+bin/
+*.apk
+*.aab
+
+# Kotlin build cache
+.kotlin/
+
+# Android Studio profiler captures
+captures/
+
+# Heap dumps
+*.hprof
+
+# OS specific
+.DS_Store
+**/.DS_Store
+Thumbs.db
+
+# Merge conflict originals
+*.orig
+
+# Secrets
+*.jks
+*.keystore
