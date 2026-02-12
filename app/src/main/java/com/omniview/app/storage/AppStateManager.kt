@@ -14,6 +14,10 @@ import android.content.SharedPreferences
  */
 class AppStateManager(context: Context) {
 
+    // Schema version — increment when adding new preference keys
+    // to handle SharedPreferences evolution across app updates
+    private val PREFS_VERSION = 2
+
     private val preferences: SharedPreferences =
         context.getSharedPreferences("omniview_state", Context.MODE_PRIVATE)
 
