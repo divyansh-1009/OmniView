@@ -218,6 +218,10 @@ class RagViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.update { it.copy(isGenerating = false) }
     }
 
+    fun clearChat() {
+        _uiState.update { it.copy(messages = emptyList()) }
+    }
+
     override fun onCleared() {
         super.onCleared()
         generationJob?.cancel()

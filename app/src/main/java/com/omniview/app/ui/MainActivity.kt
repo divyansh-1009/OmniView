@@ -226,35 +226,6 @@ fun SettingsDrawerContent(
         }
 
         Spacer(modifier = Modifier.height(32.dp))
-
-        // Recording Toggle
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(16.dp))
-                .background(Color(0xFF2B201E))
-                .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(modifier = Modifier.size(8.dp).clip(androidx.compose.foundation.shape.CircleShape).background(if (isRecording) Color(0xFFFF5722) else Color.Gray))
-                Spacer(modifier = Modifier.width(12.dp))
-                Text("Recording", color = Color.White, fontWeight = FontWeight.SemiBold)
-            }
-            Switch(
-                checked = isRecording,
-                onCheckedChange = { isRecording = it },
-                colors = SwitchDefaults.colors(
-                    checkedThumbColor = Color.White,
-                    checkedTrackColor = Color(0xFFFF5722),
-                    uncheckedThumbColor = Color.LightGray,
-                    uncheckedTrackColor = Color.DarkGray
-                )
-            )
-        }
-        
-        Spacer(modifier = Modifier.height(16.dp))
         
         // Memory Usage Indicator
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -288,32 +259,8 @@ fun SettingsDrawerContent(
                 .background(Color(0xFF1F1817))
                 .padding(16.dp)
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                val dotColor by animateColorAsState(
-                    targetValue = when (ragState.modelStatus) {
-                        ModelStatus.READY -> Color(0xFF4ADE80)
-                        ModelStatus.LOADING -> Color(0xFFFBBF24)
-                        ModelStatus.ERROR -> Color(0xFFF87171)
-                        ModelStatus.NOT_LOADED -> Color.Gray
-                    },
-                    label = "dot_color"
-                )
-                Box(modifier = Modifier.size(8.dp).clip(androidx.compose.foundation.shape.CircleShape).background(dotColor))
-                Spacer(modifier = Modifier.width(12.dp))
-                Text("Gemma 3 Mobile", color = Color.White, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-            }
-            Spacer(modifier = Modifier.height(12.dp))
-            
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = when (ragState.modelStatus) {
-                        ModelStatus.NOT_LOADED -> "Not loaded"
-                        ModelStatus.LOADING -> "Loading into RAM..."
-                        ModelStatus.READY -> "Ready (${ragState.embeddingCount} contexts)"
-                        ModelStatus.ERROR -> "Error loading"
-                    },
-                    style = MaterialTheme.typography.labelSmall, color = Color.Gray
-                )
+                Text("Gemma 4", color = Color.White, fontWeight = FontWeight.SemiBold)
                 
                 if (ragState.modelStatus == ModelStatus.READY) {
                     Button(onClick = { ragViewModel.unloadModel() }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF374151)), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 2.dp), modifier = Modifier.height(30.dp)) {
@@ -322,6 +269,10 @@ fun SettingsDrawerContent(
                 } else if (ragState.modelStatus == ModelStatus.NOT_LOADED || ragState.modelStatus == ModelStatus.ERROR) {
                     Button(onClick = { ragViewModel.loadModel() }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF5722)), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 2.dp), modifier = Modifier.height(30.dp)) {
                         Text("Load", fontSize = 11.sp)
+                    }
+                } else {
+                    Button(onClick = { }, enabled = false, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF374151)), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 2.dp), modifier = Modifier.height(30.dp)) {
+                        Text("Loading...", fontSize = 11.sp, color = Color.Gray)
                     }
                 }
             }
@@ -370,16 +321,20 @@ fun SettingsDrawerContent(
         }
         Spacer(modifier = Modifier.height(12.dp))
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = onStartCapture, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1F1817))) {
-                Icon(Icons.Default.Build, contentDescription = null, tint = Color(0xFF4ADE80), modifier = Modifier.size(16.dp))
+            Button(onClick = { isRecording = !isRecording }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1F1817))) {
+                Icon(Icons.Default.Build, contentDescription = null, tint = if (isRecording) Color(0xFFF87171) else Color(0xFF4ADE80), modifier = Modifier.size(16.dp))
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("Start Capture Service", fontSize = 12.sp, color = Color.White)
+                Text(if (isRecording) "Stop Capture" else "Start Capture", fontSize = 12.sp, color = Color.White)
             }
-            Button(onClick = onRunOcrNow, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1F1817))) {
-                Text("Run OCR Processing Now", fontSize = 12.sp, color = Color.White)
-            }
-            Button(onClick = onRunEmbeddingNow, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1F1817))) {
-                Text("Run Embedding Processing Now", fontSize = 12.sp, color = Color.White)
+            Button(
+                onClick = { 
+                    onRunOcrNow()
+                    onRunEmbeddingNow()
+                }, 
+                modifier = Modifier.fillMaxWidth(), 
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1F1817))
+            ) {
+                Text("Process Data Now", fontSize = 12.sp, color = Color.White)
             }
         }
 
