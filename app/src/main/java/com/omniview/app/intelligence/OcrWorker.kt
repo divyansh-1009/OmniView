@@ -4,6 +4,7 @@ import com.omniview.app.storage.ExtractedContext
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.net.Uri
 import android.os.BatteryManager
 import android.util.Log
 import androidx.work.CoroutineWorker
@@ -69,6 +70,14 @@ class OcrWorker(
             val result = OcrProcessor.process(applicationContext, item)
             if (result != null) {
                 results.add(result)
+            }
+            
+            // Delete the processed screenshot from MediaStore to save space
+            try {
+                applicationContext.contentResolver.delete(Uri.parse(item.uri), null, null)
+                Log.d(TAG, "Deleted processed screenshot: ${item.uri}")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to delete processed screenshot: ${item.uri}", e)
             }
         }
 
