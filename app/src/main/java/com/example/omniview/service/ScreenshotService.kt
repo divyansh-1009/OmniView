@@ -7,6 +7,7 @@ import android.app.Service
 import android.content.ContentValues
 import android.content.Intent
 import android.graphics.Bitmap
+import android.graphics.Color
 import android.graphics.PixelFormat
 import android.hardware.display.DisplayManager
 import android.hardware.display.VirtualDisplay
@@ -30,6 +31,19 @@ class ScreenshotService : Service() {
     private lateinit var imageReader: ImageReader
 
     private val serviceScope = CoroutineScope(Dispatchers.IO + Job())
+
+    private var lastPHash: LongArray? = null
+
+    companion object {
+        private const val CHANNEL_ID = "ScreenshotServiceChannel"
+        private const val NOTIFICATION_ID = 1
+
+        private const val HASH_SIZE = 8
+
+        private const val RESIZE = 32
+
+        private const val SIMILARITY_THRESHOLD = 10
+    }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
 
@@ -110,6 +124,20 @@ class ScreenshotService : Service() {
 
         image.close()
 
+        val currentHash = computePHash(bitmap)
+        val previous = lastPHash
+
+        if (previous != null) {
+            val distance = hammingDistance(previous, currentHash)
+            Log.d("ScreenshotService", "Hamming distance from last screenshot: $distance")
+            if (distance <= SIMILARITY_THRESHOLD) {
+                Log.d("ScreenshotService", "Screenshot too similar (distance=$distance), skipping save")
+                bitmap.recycle()
+                return
+            }
+        }
+
+        lastPHash = currentHash
         saveBitmap(bitmap)
 
         Log.d("ScreenshotService", "Screenshot saved at ${System.currentTimeMillis()}")
@@ -144,6 +172,72 @@ class ScreenshotService : Service() {
         }
     }
 
+    private fun computePHash(bitmap: Bitmap): LongArray {
+        val scaled = Bitmap.createScaledBitmap(bitmap, RESIZE, RESIZE, true)
+        val grey = Array(RESIZE) { y ->
+            DoubleArray(RESIZE) { x ->
+                val pixel = scaled.getPixel(x, y)
+                0.299 * Color.red(pixel) + 0.587 * Color.green(pixel) + 0.114 * Color.blue(pixel)
+            }
+        }
+        if (scaled != bitmap) scaled.recycle()
+
+        val dct = applyDCT(grey)
+
+        val coeffs = mutableListOf<Double>()
+        for (y in 0 until HASH_SIZE) {
+            for (x in 0 until HASH_SIZE) {
+                if (x == 0 && y == 0) continue  
+                coeffs.add(dct[y][x])
+            }
+        }
+
+        val sorted = coeffs.sorted()
+        val median = sorted[sorted.size / 2]
+
+        var hash = 0L
+        var bit = 0
+        for (y in 0 until HASH_SIZE) {
+            for (x in 0 until HASH_SIZE) {
+                if (x == 0 && y == 0) {
+                    bit++
+                    continue
+                }
+                if (dct[y][x] >= median) {
+                    hash = hash or (1L shl bit)
+                }
+                bit++
+            }
+        }
+
+        return longArrayOf(hash)
+    }
+
+    private fun applyDCT(input: Array<DoubleArray>): Array<DoubleArray> {
+        val n = input.size
+        val output = Array(n) { DoubleArray(n) }
+        for (u in 0 until n) {
+            for (v in 0 until n) {
+                var sum = 0.0
+                for (i in 0 until n) {
+                    for (j in 0 until n) {
+                        sum += input[i][j] *
+                                Math.cos((2.0 * i + 1) * u * Math.PI / (2.0 * n)) *
+                                Math.cos((2.0 * j + 1) * v * Math.PI / (2.0 * n))
+                    }
+                }
+                val cu = if (u == 0) 1.0 / Math.sqrt(2.0) else 1.0
+                val cv = if (v == 0) 1.0 / Math.sqrt(2.0) else 1.0
+                output[u][v] = (2.0 / n) * cu * cv * sum
+            }
+        }
+        return output
+    }
+
+    private fun hammingDistance(a: LongArray, b: LongArray): Int {
+        return java.lang.Long.bitCount(a[0] xor b[0])
+    }
+
     private fun createNotification(): Notification {
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -172,9 +266,4 @@ class ScreenshotService : Service() {
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
-
-    companion object {
-        private const val CHANNEL_ID = "ScreenshotServiceChannel"
-        private const val NOTIFICATION_ID = 1
-    }
 }
