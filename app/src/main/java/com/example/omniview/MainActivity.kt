@@ -17,6 +17,10 @@ import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
 import com.example.omniview.service.ScreenshotService
 import com.example.omniview.ui.theme.OmniViewTheme
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.ui.Alignment
 
 class MainActivity : ComponentActivity() {
 
@@ -44,11 +48,18 @@ class MainActivity : ComponentActivity() {
         setContent {
             OmniViewTheme {
                 Surface(
-                    modifier = Modifier,
+                    modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    StartCaptureButton {
-                        requestScreenCapture()
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .statusBarsPadding(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        StartCaptureButton {
+                            requestScreenCapture()
+                        }
                     }
                 }
             }
