@@ -34,6 +34,7 @@ class SemanticSearch(private val embeddingEngine: EmbeddingEngine) {
 
     companion object {
         private const val TAG = "OmniView:Search"
+        private const val MIN_SCORE_THRESHOLD = 0.0f // Accept all scores; RAGPipeline handles cutoff
     }
 
     /**
