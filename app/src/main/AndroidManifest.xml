@@ -10,6 +10,12 @@
     <uses-permission
         android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="28" />
+    
+    <!-- Required for app detection (REQ-11, REQ-12) -->
+    <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS" />
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
+    <!-- Required for AccessibilityService integration (optional fallback for app detection) -->
+    <uses-permission android:name="android.permission.BIND_ACCESSIBILITY_SERVICE" />
 
     <application
         android:allowBackup="true"
@@ -39,6 +45,15 @@
             android:name=".service.ScreenshotService"
             android:foregroundServiceType="mediaProjection"
             android:exported="false" />
+
+        <!-- Permission Change Receiver (REQ-2) -->
+        <receiver
+            android:name=".ingestion.PermissionMonitor$PermissionChangeReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.media.projection.PERMISSION_CHANGE" />
+            </intent-filter>
+        </receiver>
 
     </application>
 
