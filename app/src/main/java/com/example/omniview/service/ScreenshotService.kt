@@ -23,6 +23,8 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import kotlinx.coroutines.*
 import java.nio.ByteBuffer
+import com.example.omniview.ingestion.AppDetectionManager
+import com.example.omniview.ingestion.AppStateManager
 
 class ScreenshotService : Service() {
 
@@ -33,6 +35,9 @@ class ScreenshotService : Service() {
     private val serviceScope = CoroutineScope(Dispatchers.IO + Job())
 
     private var lastPHash: LongArray? = null
+    
+    private lateinit var appStateManager: AppStateManager
+    private lateinit var appDetectionManager: AppDetectionManager
 
     companion object {
         private const val CHANNEL_ID = "ScreenshotServiceChannel"
@@ -48,6 +53,10 @@ class ScreenshotService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
 
         startForeground(NOTIFICATION_ID, createNotification())
+
+        // Initialize managers
+        appStateManager = AppStateManager(this)
+        appDetectionManager = AppDetectionManager(this)
 
         val resultCode = intent?.getIntExtra("resultCode", -1) ?: return START_NOT_STICKY
         val data: Intent? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -107,6 +116,14 @@ class ScreenshotService : Service() {
     private fun captureScreenshot() {
 
         val image = imageReader.acquireLatestImage() ?: return
+
+        // Check if current app is blacklisted (REQ-11, REQ-12)
+        val currentApp = appDetectionManager.getCurrentActiveApp()
+        if (currentApp != null && appStateManager.isBlacklisted(currentApp)) {
+            Log.d("ScreenshotService", "Active app '$currentApp' is blacklisted, skipping capture")
+            image.close()
+            return
+        }
 
         val planes = image.planes
         val buffer: ByteBuffer = planes[0].buffer
