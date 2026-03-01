@@ -25,6 +25,7 @@ import kotlinx.coroutines.*
 import java.nio.ByteBuffer
 import com.example.omniview.ingestion.AppDetectionManager
 import com.example.omniview.ingestion.AppStateManager
+import com.example.omniview.ingestion.PermissionMonitor
 
 class ScreenshotService : Service() {
 
@@ -38,6 +39,7 @@ class ScreenshotService : Service() {
     
     private lateinit var appStateManager: AppStateManager
     private lateinit var appDetectionManager: AppDetectionManager
+    private lateinit var permissionMonitor: PermissionMonitor
 
     companion object {
         private const val CHANNEL_ID = "ScreenshotServiceChannel"
@@ -57,6 +59,13 @@ class ScreenshotService : Service() {
         // Initialize managers
         appStateManager = AppStateManager(this)
         appDetectionManager = AppDetectionManager(this)
+        permissionMonitor = PermissionMonitor(this)
+
+        // Check if capture was paused from previous session (REQ-2)
+        if (appStateManager.isPaused()) {
+            Log.i("ScreenshotService", "Capture is paused, keeping service alive but not capturing")
+            return START_STICKY
+        }
 
         val resultCode = intent?.getIntExtra("resultCode", -1) ?: return START_NOT_STICKY
         val data: Intent? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -114,6 +123,11 @@ class ScreenshotService : Service() {
     }
 
     private fun captureScreenshot() {
+
+        // Check pause state and permission status before attempting capture (REQ-2)
+        if (!permissionMonitor.canCaptureNow(mediaProjection)) {
+            return
+        }
 
         val image = imageReader.acquireLatestImage() ?: return
 
@@ -268,9 +282,16 @@ class ScreenshotService : Service() {
             manager.createNotificationChannel(channel)
         }
 
+        val isPaused = appStateManager.isPaused()
+        val contentText = if (isPaused) {
+            "Capture paused (tap to resume)"
+        } else {
+            "Capturing screen every 10 seconds"
+        }
+
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("Screenshot Service Running")
-            .setContentText("Capturing screen every 10 seconds")
+            .setContentText(contentText)
             .setSmallIcon(android.R.drawable.ic_menu_camera)
             .build()
     }
