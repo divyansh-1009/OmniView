@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">OmniView</string>
+    <string name="accessibility_service_description">OmniView reads on-screen text to build a local, private screen history.</string>
 </resources>
