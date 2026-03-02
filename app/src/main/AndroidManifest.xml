@@ -40,6 +40,13 @@
 
         </activity>
 
+        <!-- Settings Activity (REQ-13, REQ-14) -->
+        <activity
+            android:name=".ui.SettingsActivity"
+            android:exported="false"
+            android:label="Settings"
+            android:theme="@style/Theme.OmniView" />
+
         <!-- Screenshot Foreground Service -->
         <service
             android:name=".service.ScreenshotService"
