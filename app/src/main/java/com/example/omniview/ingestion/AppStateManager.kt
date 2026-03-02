@@ -35,7 +35,13 @@ class AppStateManager(context: Context) {
     }
 
     init {
-        // Initialize blacklist with defaults if not already set
+        initializeDefaults()
+    }
+
+    /**
+     * Initialize blacklist with defaults if not already set
+     */
+    private fun initializeDefaults() {
         if (!preferences.contains(KEY_BLACKLIST)) {
             val editor = preferences.edit()
             editor.putStringSet(KEY_BLACKLIST, DEFAULT_BLACKLIST)
@@ -113,6 +119,6 @@ class AppStateManager(context: Context) {
      */
     fun resetAll() {
         preferences.edit().clear().apply()
-        init()
+        initializeDefaults()
     }
 }

@@ -53,13 +53,12 @@ class ScreenshotService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-
-        startForeground(NOTIFICATION_ID, createNotification())
-
-        // Initialize managers
+        // Initialize managers first (REQ-2, REQ-14)
         appStateManager = AppStateManager(this)
         appDetectionManager = AppDetectionManager(this)
         permissionMonitor = PermissionMonitor(this)
+
+        startForeground(NOTIFICATION_ID, createNotification())
 
         // Check if capture was paused from previous session (REQ-2)
         if (appStateManager.isPaused()) {
@@ -133,8 +132,10 @@ class ScreenshotService : Service() {
 
         // Check if current app is blacklisted (REQ-11, REQ-12)
         val currentApp = appDetectionManager.getCurrentActiveApp()
+        Log.d("ScreenshotService", "Detected active app: $currentApp")
+        
         if (currentApp != null && appStateManager.isBlacklisted(currentApp)) {
-            Log.d("ScreenshotService", "Active app '$currentApp' is blacklisted, skipping capture")
+            Log.i("ScreenshotService", "SKIPPING CAPTURE: App '$currentApp' is blacklisted")
             image.close()
             return
         }

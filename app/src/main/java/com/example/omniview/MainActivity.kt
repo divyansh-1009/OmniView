@@ -18,6 +18,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
 import com.example.omniview.service.ScreenshotService
+import com.example.omniview.ui.SettingsActivity
 import com.example.omniview.ui.theme.OmniViewTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize

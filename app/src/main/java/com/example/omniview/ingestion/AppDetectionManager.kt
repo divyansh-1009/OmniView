@@ -29,26 +29,18 @@ class AppDetectionManager(context: Context) {
 
     /**
      * Get the currently active application package name.
-     * Attempts AccessibilityService first, falls back to UsageStatsManager.
-     * Returns null if detection fails.
+     * Uses UsageStatsManager as the primary detection method.
+     * Returns null if detection fails or permission is not granted.
      */
     fun getCurrentActiveApp(): String? {
         return try {
-            // Try AccessibilityService method first
-            val accessibilityResult = getActiveAppViaAccessibility()
-            if (accessibilityResult != null) {
-                Log.v(TAG, "Active app detected via AccessibilityService: $accessibilityResult")
-                return accessibilityResult
-            }
-
-            // Fallback to UsageStatsManager
             val usageStatsResult = getActiveAppViaUsageStats()
             if (usageStatsResult != null) {
-                Log.v(TAG, "Active app detected via UsageStatsManager (fallback): $usageStatsResult")
+                Log.d(TAG, "Active app detected: $usageStatsResult")
                 return usageStatsResult
             }
 
-            Log.w(TAG, "Failed to detect active app via both methods")
+            Log.w(TAG, "Failed to detect active app. Ensure Usage Access permission is granted.")
             null
         } catch (e: Exception) {
             Log.e(TAG, "Error detecting active app", e)
@@ -56,51 +48,26 @@ class AppDetectionManager(context: Context) {
         }
     }
 
-    /**
-     * Attempt to get foreground app using AccessibilityService.
-     * This is the most reliable method but requires AccessibilityService to be enabled
-     * and this app's access to be granted via Settings > Accessibility.
-     *
-     * Returns null if:
-     * - AccessibilityService is not enabled for this app
-     * - Permission check fails
-     */
-    private fun getActiveAppViaAccessibility(): String? {
-        return try {
-            val tasks = activityManager?.getRunningTasks(1) ?: return null
-            if (tasks.isNotEmpty()) {
-                val topTask = tasks[0]
-                val packageName = topTask.topActivity?.packageName
-                if (packageName != null && packageName.isNotEmpty()) {
-                    return packageName
-                }
-            }
-            null
-        } catch (e: Exception) {
-            Log.v(TAG, "AccessibilityService method unavailable: ${e.message}")
-            null
-        }
-    }
 
     /**
-     * Fallback method using UsageStatsManager to get foreground app.
-     * More reliable on modern Android versions (10+) but requires PACKAGE_USAGE_STATS permission.
+     * Detection method using UsageStatsManager to get foreground app.
+     * Requires PACKAGE_USAGE_STATS permission (Usage Access).
      *
-     * Uses a 1-second query window looking back from current time to detect recent activity.
-     * Returns the package with the most recent foreground event in that window.
+     * Uses a 2-second query window to ensure we catch recent transitions.
      */
     private fun getActiveAppViaUsageStats(): String? {
         return try {
             if (usageStatsManager == null) {
+                Log.w(TAG, "UsageStatsManager is null")
                 return null
             }
 
             val currentTime = System.currentTimeMillis()
-            val queryWindowStart = currentTime - 1000  // 1 second back
+            val queryWindowStart = currentTime - 2000  // 2 seconds back
             
             val events = usageStatsManager.queryEvents(queryWindowStart, currentTime)
             if (events == null) {
-                Log.v(TAG, "UsageStatsManager returned no events")
+                Log.w(TAG, "UsageStatsManager.queryEvents returned null")
                 return null
             }
 
@@ -108,27 +75,31 @@ class AppDetectionManager(context: Context) {
             var mostRecentTime = 0L
 
             val event = UsageEvents.Event()
+            var eventCount = 0
             while (events.hasNextEvent()) {
                 events.getNextEvent(event)
+                eventCount++
                 
-                // Look for ACTIVITY_RESUMED or KEYGUARD_HIDDEN events
-                when (event.eventType) {
-                    UsageEvents.Event.ACTIVITY_RESUMED -> {
-                        if (event.timeStamp > mostRecentTime) {
-                            mostRecentTime = event.timeStamp
-                            mostRecentPackage = event.packageName
-                        }
+                // Track the most recent ACTIVITY_RESUMED event
+                if (event.eventType == UsageEvents.Event.ACTIVITY_RESUMED) {
+                    if (event.timeStamp > mostRecentTime) {
+                        mostRecentTime = event.timeStamp
+                        mostRecentPackage = event.packageName
                     }
                 }
             }
 
+            Log.v(TAG, "Analyzed $eventCount usage events in window. Most recent: $mostRecentPackage")
+
             if (mostRecentPackage != null && mostRecentPackage.isNotEmpty()) {
+                // Ignore our own app if detected, we want to know what's BEHIND us or active
+                // Actually, if we are in the foreground (Settings), we should report it correctly
                 return mostRecentPackage
             }
 
             null
         } catch (e: Exception) {
-            Log.v(TAG, "UsageStatsManager method failed: ${e.message}")
+            Log.e(TAG, "UsageStatsManager method failed: ${e.message}")
             null
         }
     }
