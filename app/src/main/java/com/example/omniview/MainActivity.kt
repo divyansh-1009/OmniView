@@ -8,13 +8,21 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
 import androidx.core.content.ContextCompat
+import com.example.omniview.ocr.OcrWorkScheduler
 import com.example.omniview.service.ScreenshotService
 import com.example.omniview.ui.theme.OmniViewTheme
 
@@ -44,12 +52,13 @@ class MainActivity : ComponentActivity() {
         setContent {
             OmniViewTheme {
                 Surface(
-                    modifier = Modifier,
+                    modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    StartCaptureButton {
-                        requestScreenCapture()
-                    }
+                    DevControls(
+                        onStartCapture = { requestScreenCapture() },
+                        onRunOcr = { runOcrNow() }
+                    )
                 }
             }
         }
@@ -59,11 +68,25 @@ class MainActivity : ComponentActivity() {
         val captureIntent = projectionManager.createScreenCaptureIntent()
         screenCaptureLauncher.launch(captureIntent)
     }
+
+    private fun runOcrNow() {
+        OcrWorkScheduler.scheduleNow(this)
+    }
 }
 
 @Composable
-fun StartCaptureButton(onClick: () -> Unit) {
-    Button(onClick = onClick) {
-        Text("Start Screenshot Service")
+fun DevControls(onStartCapture: () -> Unit, onRunOcr: () -> Unit) {
+    Column(
+        modifier = Modifier.fillMaxSize(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Button(onClick = onStartCapture) {
+            Text("Start Screenshot Service")
+        }
+        Spacer(modifier = Modifier.height(16.dp))
+        Button(onClick = onRunOcr) {
+            Text("Run OCR Now (dev)")
+        }
     }
 }

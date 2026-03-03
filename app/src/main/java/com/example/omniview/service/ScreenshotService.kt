@@ -19,8 +19,13 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.provider.MediaStore
+import android.net.Uri
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import com.example.omniview.ocr.OcrQueue
+import com.example.omniview.ocr.OcrWorkScheduler
+import com.example.omniview.ocr.PendingOcrItem
+import com.example.omniview.util.AppStateHolder
 import kotlinx.coroutines.*
 import java.nio.ByteBuffer
 
@@ -138,12 +143,24 @@ class ScreenshotService : Service() {
         }
 
         lastPHash = currentHash
-        saveBitmap(bitmap)
+        val savedUri = saveBitmap(bitmap)
+
+        if (savedUri != null) {
+            OcrQueue.enqueue(
+                this,
+                PendingOcrItem(
+                    uri = savedUri.toString(),
+                    app = AppStateHolder.lastKnownApp,
+                    timestamp = System.currentTimeMillis()
+                )
+            )
+            OcrWorkScheduler.schedule(this)
+        }
 
         Log.d("ScreenshotService", "Screenshot saved at ${System.currentTimeMillis()}")
     }
 
-    private fun saveBitmap(bitmap: Bitmap) {
+    private fun saveBitmap(bitmap: Bitmap): Uri? {
 
         val filename = "screenshot_${System.currentTimeMillis()}.png"
 
@@ -159,17 +176,17 @@ class ScreenshotService : Service() {
         val imageUri = resolver.insert(
             MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
             contentValues
-        )
+        ) ?: return null
 
-        imageUri?.let { uri ->
-            resolver.openOutputStream(uri)?.use { outputStream ->
-                bitmap.compress(Bitmap.CompressFormat.PNG, 100, outputStream)
-            }
-
-            contentValues.clear()
-            contentValues.put(MediaStore.Images.Media.IS_PENDING, 0)
-            resolver.update(uri, contentValues, null, null)
+        resolver.openOutputStream(imageUri)?.use { outputStream ->
+            bitmap.compress(Bitmap.CompressFormat.PNG, 100, outputStream)
         }
+
+        contentValues.clear()
+        contentValues.put(MediaStore.Images.Media.IS_PENDING, 0)
+        resolver.update(imageUri, contentValues, null, null)
+
+        return imageUri
     }
 
     private fun computePHash(bitmap: Bitmap): LongArray {
