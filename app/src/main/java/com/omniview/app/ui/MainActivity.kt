@@ -263,16 +263,16 @@ fun SettingsDrawerContent(
                 Text("Gemma 4", color = Color.White, fontWeight = FontWeight.SemiBold)
                 
                 if (ragState.modelStatus == ModelStatus.READY) {
-                    Button(onClick = { ragViewModel.unloadModel() }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF374151)), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 2.dp), modifier = Modifier.height(30.dp)) {
-                        Text("Unload", fontSize = 11.sp)
+                    Button(onClick = { ragViewModel.unloadModel() }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF4444)), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 2.dp), modifier = Modifier.height(30.dp)) {
+                        Text("Unload", fontSize = 11.sp, color = Color.White, fontWeight = FontWeight.SemiBold)
                     }
                 } else if (ragState.modelStatus == ModelStatus.NOT_LOADED || ragState.modelStatus == ModelStatus.ERROR) {
-                    Button(onClick = { ragViewModel.loadModel() }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF5722)), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 2.dp), modifier = Modifier.height(30.dp)) {
-                        Text("Load", fontSize = 11.sp)
+                    Button(onClick = { ragViewModel.loadModel() }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 2.dp), modifier = Modifier.height(30.dp)) {
+                        Text("Load", fontSize = 11.sp, color = Color.White, fontWeight = FontWeight.SemiBold)
                     }
                 } else {
                     Button(onClick = { }, enabled = false, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF374151)), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 2.dp), modifier = Modifier.height(30.dp)) {
-                        Text("Loading...", fontSize = 11.sp, color = Color.Gray)
+                        Text("Loading...", fontSize = 11.sp, color = Color.LightGray)
                     }
                 }
             }
