@@ -39,6 +39,15 @@
             android:foregroundServiceType="mediaProjection"
             android:exported="false" />
 
+        <!-- Fires when charger is plugged in to drain the OCR queue immediately -->
+        <receiver
+            android:name=".ocr.ChargingReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.ACTION_POWER_CONNECTED" />
+            </intent-filter>
+        </receiver>
+
         <!-- Accessibility Service for real-time UI text extraction -->
         <service
             android:name=".accessibility.ScreenAccessibilityService"
