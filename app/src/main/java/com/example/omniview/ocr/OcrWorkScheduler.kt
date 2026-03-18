@@ -2,14 +2,12 @@ package com.example.omniview.ocr
 
 import android.content.Context
 import android.util.Log
-import androidx.work.BackoffPolicy
-import androidx.work.Constraints
 import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.OutOfQuotaPolicy
+import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import androidx.work.workDataOf
-import java.util.concurrent.TimeUnit
 
 object OcrWorkScheduler {
 
@@ -17,33 +15,32 @@ object OcrWorkScheduler {
     private const val WORK_NAME = "omniview_ocr_processing"
 
     /**
-     * Enqueues OCR processing to run once the device is charging AND battery > 80%.
+     * Called after every screenshot capture.
      *
-     * Uses KEEP policy — if work is already queued or running, this call is a no-op,
-     * so it's safe to call on every screenshot capture.
+     * Runs the worker immediately with no OS-level constraints — the worker
+     * itself checks charging + battery > 80% and exits cleanly if conditions
+     * are not met. This makes the check eager and emulator-friendly rather
+     * than depending on WorkManager's passive constraint tracker.
      */
     fun schedule(context: Context) {
-        val constraints = Constraints.Builder()
-            .setRequiresCharging(true)
-            .build()
+        val wm = WorkManager.getInstance(context)
+
+        val existing = wm.getWorkInfosForUniqueWork(WORK_NAME).get()
+        if (existing.any { it.state == WorkInfo.State.RUNNING }) {
+            Log.d(TAG, "OCR already running — skipping re-enqueue")
+            return
+        }
 
         val request = OneTimeWorkRequestBuilder<OcrWorker>()
-            .setConstraints(constraints)
-            .setBackoffCriteria(BackoffPolicy.LINEAR, 30, TimeUnit.MINUTES)
+            .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
             .build()
 
-        WorkManager.getInstance(context).enqueueUniqueWork(
-            WORK_NAME,
-            ExistingWorkPolicy.KEEP,
-            request
-        )
-
-        Log.d(TAG, "OCR work scheduled (will run when charging + battery > 80%)")
+        wm.enqueueUniqueWork(WORK_NAME, ExistingWorkPolicy.REPLACE, request)
+        Log.d(TAG, "OCR work enqueued — worker will check conditions")
     }
 
     /**
-     * Runs OCR immediately with no constraints — for development/testing only.
-     * Bypasses charging and battery checks inside the worker.
+     * Force-runs OCR bypassing all condition checks — dev / testing only.
      */
     fun scheduleNow(context: Context) {
         val request = OneTimeWorkRequestBuilder<OcrWorker>()
@@ -52,6 +49,6 @@ object OcrWorkScheduler {
             .build()
 
         WorkManager.getInstance(context).enqueue(request)
-        Log.d(TAG, "OCR work scheduled immediately (dev mode)")
+        Log.d(TAG, "OCR work force-scheduled (dev mode)")
     }
 }
