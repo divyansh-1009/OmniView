@@ -14,6 +14,7 @@ import android.hardware.display.VirtualDisplay
 import android.media.ImageReader
 import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
+import android.net.Uri
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
@@ -21,11 +22,15 @@ import android.os.Looper
 import android.provider.MediaStore
 import android.util.Log
 import androidx.core.app.NotificationCompat
-import kotlinx.coroutines.*
-import java.nio.ByteBuffer
 import com.example.omniview.ingestion.AppDetectionManager
 import com.example.omniview.ingestion.AppStateManager
 import com.example.omniview.ingestion.PermissionMonitor
+import com.example.omniview.ocr.OcrQueue
+import com.example.omniview.ocr.OcrWorkScheduler
+import com.example.omniview.ocr.PendingOcrItem
+import com.example.omniview.util.AppStateHolder
+import kotlinx.coroutines.*
+import java.nio.ByteBuffer
 
 class ScreenshotService : Service() {
 
@@ -170,12 +175,25 @@ class ScreenshotService : Service() {
         }
 
         lastPHash = currentHash
-        saveBitmap(bitmap)
+        val savedUri = saveBitmap(bitmap)
+
+        if (savedUri != null) {
+            // Enqueue for OCR processing (from text branch)
+            OcrQueue.enqueue(
+                this,
+                PendingOcrItem(
+                    uri = savedUri.toString(),
+                    app = currentApp ?: AppStateHolder.lastKnownApp,
+                    timestamp = System.currentTimeMillis()
+                )
+            )
+            OcrWorkScheduler.schedule(this)
+        }
 
         Log.d("ScreenshotService", "Screenshot saved at ${System.currentTimeMillis()}")
     }
 
-    private fun saveBitmap(bitmap: Bitmap) {
+    private fun saveBitmap(bitmap: Bitmap): Uri? {
 
         val filename = "screenshot_${System.currentTimeMillis()}.png"
 
@@ -191,17 +209,17 @@ class ScreenshotService : Service() {
         val imageUri = resolver.insert(
             MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
             contentValues
-        )
+        ) ?: return null
 
-        imageUri?.let { uri ->
-            resolver.openOutputStream(uri)?.use { outputStream ->
-                bitmap.compress(Bitmap.CompressFormat.PNG, 100, outputStream)
-            }
-
-            contentValues.clear()
-            contentValues.put(MediaStore.Images.Media.IS_PENDING, 0)
-            resolver.update(uri, contentValues, null, null)
+        resolver.openOutputStream(imageUri)?.use { outputStream ->
+            bitmap.compress(Bitmap.CompressFormat.PNG, 100, outputStream)
         }
+
+        contentValues.clear()
+        contentValues.put(MediaStore.Images.Media.IS_PENDING, 0)
+        resolver.update(imageUri, contentValues, null, null)
+
+        return imageUri
     }
 
     private fun computePHash(bitmap: Bitmap): LongArray {
@@ -209,7 +227,7 @@ class ScreenshotService : Service() {
         val grey = Array(RESIZE) { y ->
             DoubleArray(RESIZE) { x ->
                 val pixel = scaled.getPixel(x, y)
-                0.299 * Color.red(pixel) + 0.587 * Color.green(pixel) + 0.114 * Color.blue(pixel)
+                0.299 * Color.red(pixel) + 0.587 * Color.green(pixel) + 114 * Color.blue(pixel)
             }
         }
         if (scaled != bitmap) scaled.recycle()
@@ -283,7 +301,7 @@ class ScreenshotService : Service() {
             manager.createNotificationChannel(channel)
         }
 
-        val isPaused = appStateManager.isPaused()
+        val isPaused = if (::appStateManager.isInitialized) appStateManager.isPaused() else false
         val contentText = if (isPaused) {
             "Capture paused (tap to resume)"
         } else {

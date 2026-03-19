@@ -4,10 +4,19 @@ import android.app.Activity
 import android.content.Intent
 import android.media.projection.MediaProjectionManager
 import android.os.Bundle
+import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -15,21 +24,16 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import com.example.omniview.ingestion.AppStateManager
+import com.example.omniview.ocr.OcrWorkScheduler
 import com.example.omniview.service.ScreenshotService
 import com.example.omniview.ui.SettingsActivity
 import com.example.omniview.ui.theme.OmniViewTheme
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.unit.dp
-import com.example.omniview.ingestion.AppStateManager
 
 class MainActivity : ComponentActivity() {
 
@@ -72,6 +76,8 @@ class MainActivity : ComponentActivity() {
                             onStartCapture = { requestScreenCapture() },
                             onPauseResume = { togglePause() },
                             onOpenSettings = { openSettings() },
+                            onOpenUsageAccess = { openUsageAccessSettings() },
+                            onRunOcrNow = { runOcrNow() },
                             appStateManager = appStateManager
                         )
                     }
@@ -91,13 +97,28 @@ class MainActivity : ComponentActivity() {
         } else {
             appStateManager.pauseCapture()
         }
-        // Force recomposition by recreating content
+        // Force recomposition
         recreate()
     }
 
     private fun openSettings() {
         val intent = Intent(this, SettingsActivity::class.java)
         startActivity(intent)
+    }
+
+    private fun openUsageAccessSettings() {
+        try {
+            val intent = Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)
+            startActivity(intent)
+        } catch (e: Exception) {
+            // Fallback to general settings if specific path fails
+            val intent = Intent(Settings.ACTION_SETTINGS)
+            startActivity(intent)
+        }
+    }
+
+    private fun runOcrNow() {
+        OcrWorkScheduler.scheduleNow(this)
     }
 }
 
@@ -106,6 +127,8 @@ fun MainScreen(
     onStartCapture: () -> Unit,
     onPauseResume: () -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenUsageAccess: () -> Unit,
+    onRunOcrNow: () -> Unit,
     appStateManager: AppStateManager
 ) {
     val isPaused = remember { mutableStateOf(appStateManager.isPaused()) }
@@ -113,40 +136,62 @@ fun MainScreen(
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
-        modifier = Modifier.fillMaxSize()
+        modifier = Modifier.fillMaxSize().padding(24.dp)
     ) {
-        StartCaptureButton(onClick = onStartCapture)
-        
-        Spacer(modifier = Modifier.height(16.dp))
-        
-        PauseResumeButton(
-            isPaused = isPaused.value,
-            onClick = onPauseResume
+        Text(
+            "OmniView Ingestion & OCR",
+            style = MaterialTheme.typography.headlineMedium,
+            textAlign = TextAlign.Center
         )
         
+        Spacer(modifier = Modifier.height(32.dp))
+
+        Button(onClick = onStartCapture) {
+            Text("Start Screenshot Service")
+        }
+        
         Spacer(modifier = Modifier.height(16.dp))
         
-        SettingsButton(onClick = onOpenSettings)
-    }
-}
+        Button(onClick = onPauseResume) {
+            Text(if (isPaused.value) "Resume Capture" else "Pause Capture")
+        }
+        
+        Spacer(modifier = Modifier.height(16.dp))
+        
+        Button(onClick = onOpenSettings) {
+            Text("Settings (Blacklist)")
+        }
 
-@Composable
-fun StartCaptureButton(onClick: () -> Unit) {
-    Button(onClick = onClick) {
-        Text("Start Screenshot Service")
-    }
-}
+        Spacer(modifier = Modifier.height(32.dp))
+        
+        Text(
+            "Detection Permissions",
+            style = MaterialTheme.typography.titleMedium
+        )
+        Text(
+            "Required for app blacklisting to work properly",
+            style = MaterialTheme.typography.bodySmall,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.padding(top = 4.dp)
+        )
+        
+        Spacer(modifier = Modifier.height(8.dp))
+        
+        Button(onClick = onOpenUsageAccess) {
+            Text("Grant Usage Access")
+        }
 
-@Composable
-fun PauseResumeButton(isPaused: Boolean, onClick: () -> Unit) {
-    Button(onClick = onClick) {
-        Text(if (isPaused) "Resume Capture" else "Pause Capture")
-    }
-}
+        Spacer(modifier = Modifier.height(48.dp))
 
-@Composable
-fun SettingsButton(onClick: () -> Unit) {
-    Button(onClick = onClick) {
-        Text("Settings")
+        Text("Developer Tools", style = MaterialTheme.typography.labelLarge)
+        
+        Spacer(modifier = Modifier.height(8.dp))
+        
+        Button(
+            onClick = onRunOcrNow,
+            modifier = Modifier.padding(bottom = 16.dp)
+        ) {
+            Text("Run OCR Processing Now")
+        }
     }
 }
