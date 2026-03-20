@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
-    package="com.example.omniview">
+    package="com.omniview.app.ui">
 
     <!-- Required permissions -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
@@ -42,20 +42,20 @@
 
         <!-- Settings Activity (REQ-13, REQ-14) -->
         <activity
-            android:name=".ui.SettingsActivity"
+            android:name=".SettingsActivity"
             android:exported="false"
             android:label="Settings"
             android:theme="@style/Theme.OmniView" />
 
         <!-- Screenshot Foreground Service -->
         <service
-            android:name=".service.ScreenshotService"
+            android:name="com.omniview.app.ingestion.ScreenshotService"
             android:foregroundServiceType="mediaProjection"
             android:exported="false" />
 
         <!-- Permission Change Receiver (REQ-2) -->
         <receiver
-            android:name=".ingestion.PermissionMonitor$PermissionChangeReceiver"
+            android:name="com.omniview.app.ingestion.PermissionMonitor$PermissionChangeReceiver"
             android:exported="false">
             <intent-filter>
                 <action android:name="android.media.projection.PERMISSION_CHANGE" />
@@ -64,7 +64,7 @@
 
         <!-- Fires when charger is plugged in (Legacy, kept for compatibility) -->
         <receiver
-            android:name=".ocr.ChargingReceiver"
+            android:name="com.omniview.app.intelligence.ChargingReceiver"
             android:exported="false">
             <intent-filter>
                 <action android:name="android.intent.action.ACTION_POWER_CONNECTED" />
@@ -73,7 +73,7 @@
 
         <!-- Accessibility Service for real-time UI text extraction -->
         <service
-            android:name=".accessibility.ScreenAccessibilityService"
+            android:name="com.omniview.app.ingestion.ScreenAccessibilityService"
             android:exported="true"
             android:label="@string/app_name"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">

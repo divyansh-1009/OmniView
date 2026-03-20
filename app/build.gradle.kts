@@ -8,11 +8,11 @@ plugins {
 }
 
 android {
-    namespace = "com.example.omniview"
+    namespace = "com.omniview.app.ui"
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.example.omniview"
+        applicationId = "com.omniview.app.ui"
         minSdk = 24
         targetSdk = 36
         versionCode = 1

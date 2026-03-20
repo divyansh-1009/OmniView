@@ -1,4 +1,4 @@
-package com.example.omniview
+package com.omniview.app.ui
 
 import org.junit.Test
 
