@@ -32,6 +32,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.omniview.app.storage.AppStateManager
 import com.omniview.app.intelligence.OcrWorkScheduler
+import com.omniview.app.intelligence.EmbeddingWorkScheduler
 import com.omniview.app.ingestion.ScreenshotService
 import com.omniview.app.ui.SettingsActivity
 import com.omniview.app.ui.theme.OmniViewTheme
@@ -92,6 +93,7 @@ class MainActivity : ComponentActivity() {
                                 }
                             },
                             onRunOcrNow = { runOcrNow() },
+                            onRunEmbeddingNow = { runEmbeddingNow() },
                             appStateManager = appStateManager
                         )
                     }
@@ -144,6 +146,10 @@ class MainActivity : ComponentActivity() {
     private fun runOcrNow() {
         OcrWorkScheduler.scheduleNow(this)
     }
+
+    private fun runEmbeddingNow() {
+        EmbeddingWorkScheduler.scheduleNow(this)
+    }
 }
 
 @Composable
@@ -155,6 +161,7 @@ fun MainScreen(
     onOpenAccessibility: () -> Unit,
     onRequestNotifications: () -> Unit,
     onRunOcrNow: () -> Unit,
+    onRunEmbeddingNow: () -> Unit,
     appStateManager: AppStateManager
 ) {
     val isPaused = remember { mutableStateOf(appStateManager.isPaused()) }
@@ -228,9 +235,16 @@ fun MainScreen(
         
         Button(
             onClick = onRunOcrNow,
-            modifier = Modifier.padding(bottom = 16.dp)
+            modifier = Modifier.padding(bottom = 8.dp)
         ) {
             Text("Run OCR Processing Now")
+        }
+
+        Button(
+            onClick = onRunEmbeddingNow,
+            modifier = Modifier.padding(bottom = 16.dp)
+        ) {
+            Text("Run Embedding Processing Now")
         }
     }
 }

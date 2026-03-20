@@ -37,6 +37,9 @@ android {
     buildFeatures {
         compose = true
     }
+    aaptOptions {
+        noCompress += "tflite"
+    }
 }
 
 kotlin {
@@ -64,6 +67,9 @@ dependencies {
     ksp(libs.room.compiler)
     implementation(libs.work.runtime.ktx)
 
+    // TFLite (on-device embedding inference via Play Services)
+    implementation(libs.play.services.tflite.java)
+
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
@@ -71,4 +77,8 @@ dependencies {
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
+}
+
+configurations.all {
+    exclude(group = "com.google.ai.edge.litert")
 }

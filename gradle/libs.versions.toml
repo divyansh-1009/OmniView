@@ -14,7 +14,7 @@ mlkitTextRecognition = "16.0.1"
 room = "2.8.4"
 ksp = "2.0.21-1.0.25"
 workManager = "2.11.1"
-
+playServicesTflite = "16.4.0"
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
@@ -37,6 +37,7 @@ room-runtime = { group = "androidx.room", name = "room-runtime", version.ref = "
 room-ktx = { group = "androidx.room", name = "room-ktx", version.ref = "room" }
 room-compiler = { group = "androidx.room", name = "room-compiler", version.ref = "room" }
 work-runtime-ktx = { group = "androidx.work", name = "work-runtime-ktx", version.ref = "workManager" }
+play-services-tflite-java = { group = "com.google.android.gms", name = "play-services-tflite-java", version.ref = "playServicesTflite" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
