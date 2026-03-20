@@ -30,23 +30,24 @@ class OcrWorker(
         if (!forceRun) {
             val charging = isCharging()
             val battery = batteryLevel()
-            Log.d(TAG, "Condition check — charging=$charging, battery=$battery%")
+            Log.d(TAG, "Condition check: charging=$charging, battery=$battery% (Required: charging && >$BATTERY_THRESHOLD%)")
+            
             if (!charging || battery < BATTERY_THRESHOLD) {
-                Log.i(TAG, "Conditions not met (charging=$charging, battery=$battery%) — skipping, queue preserved")
+                Log.i(TAG, "Battery conditions not met. Skipping OCR run. Queue preserved.")
                 return Result.success()
             }
-            Log.i(TAG, "Conditions met — charging=$charging, battery=$battery%")
+            Log.i(TAG, "Conditions met. Starting OCR batch processing.")
         } else {
-            Log.i(TAG, "Force-run mode — skipping condition checks")
+            Log.i(TAG, "Force-run mode enabled via UI trigger. Skipping condition checks.")
         }
 
         val items = OcrQueue.drainAll(applicationContext)
         if (items.isEmpty()) {
-            Log.i(TAG, "OCR queue is empty — nothing to process")
+            Log.i(TAG, "OCR queue is empty. Nothing to process.")
             return Result.success()
         }
 
-        Log.i(TAG, "Processing ${items.size} queued screenshots")
+        Log.i(TAG, "Processing batch of ${items.size} queued screenshots...")
 
         val repository = ContextRepository(
             ContextDatabase.getInstance(applicationContext).contextDao()
@@ -55,37 +56,41 @@ class OcrWorker(
         val results = mutableListOf<com.example.omniview.model.ExtractedContext>()
 
         for ((index, item) in items.withIndex()) {
+            // Re-check conditions mid-batch for battery health
             if (!forceRun && (!isCharging() || batteryLevel() < BATTERY_THRESHOLD)) {
                 val remaining = items.drop(index)
                 remaining.forEach { OcrQueue.enqueue(applicationContext, it) }
-                Log.i(TAG, "Conditions changed mid-run — re-queued ${remaining.size} items")
+                Log.w(TAG, "Conditions changed mid-run. Re-queued ${remaining.size} items for later.")
                 break
             }
 
+            Log.d(TAG, "Processing item ${index + 1}/${items.size}: ${item.app}")
             val result = OcrProcessor.process(applicationContext, item)
             if (result != null) {
-                Log.d(TAG, "[${result.app}] ${result.text.take(200)}")
                 results.add(result)
             }
         }
 
-        repository.insertAll(results.map { it.toEntity() })
-        Log.i(TAG, "OCR complete — stored ${results.size} / ${items.size} results")
+        if (results.isNotEmpty()) {
+            repository.insertAll(results.map { it.toEntity() })
+            Log.i(TAG, "Batch Complete: Stored ${results.size} / ${items.size} results to database.")
+        } else {
+            Log.w(TAG, "Batch Complete: Processed ${items.size} items but found no usable text.")
+        }
 
         return Result.success()
     }
 
     private fun isCharging(): Boolean {
-        // BatteryManager.isCharging is unreliable on emulators; the sticky
-        // ACTION_BATTERY_CHANGED broadcast is updated by Extended Controls.
         val intent = applicationContext.registerReceiver(
             null, IntentFilter(Intent.ACTION_BATTERY_CHANGED)
         ) ?: return false
         val status = intent.getIntExtra(BatteryManager.EXTRA_STATUS, -1)
         val plugged = intent.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0)
-        return plugged != 0 &&
+        val isCharging = plugged != 0 &&
                 (status == BatteryManager.BATTERY_STATUS_CHARGING ||
                  status == BatteryManager.BATTERY_STATUS_FULL)
+        return isCharging
     }
 
     private fun batteryLevel(): Int {

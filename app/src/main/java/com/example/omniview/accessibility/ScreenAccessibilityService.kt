@@ -8,6 +8,7 @@ import android.view.accessibility.AccessibilityNodeInfo
 import com.example.omniview.db.ContextDatabase
 import com.example.omniview.db.ContextEntity
 import com.example.omniview.db.ContextRepository
+import com.example.omniview.ingestion.AppStateManager
 import com.example.omniview.model.RawContext
 import com.example.omniview.processing.ContextCleaner
 import com.example.omniview.processing.ContextDeduplicator
@@ -17,9 +18,9 @@ import kotlinx.coroutines.*
 class ScreenAccessibilityService : AccessibilityService() {
 
     private val deduplicator = ContextDeduplicator(windowMs = 10_000L)
-
     private val serviceScope = CoroutineScope(Dispatchers.IO + Job())
     private lateinit var repository: ContextRepository
+    private lateinit var appStateManager: AppStateManager
 
     // Buffer filled on the main thread; flushed on IO.
     private val buffer = ArrayList<ContextEntity>(BATCH_SIZE)
@@ -28,22 +29,23 @@ class ScreenAccessibilityService : AccessibilityService() {
         private const val TAG = "OmniView:A11y"
         private const val BATCH_SIZE = 20
         private const val FLUSH_INTERVAL_MS = 30_000L
+        private const val SAMPLING_INTERVAL_MS = 10_000L // Sync with ScreenshotService
     }
 
     override fun onServiceConnected() {
         repository = ContextRepository(ContextDatabase.getInstance(this).contextDao())
+        appStateManager = AppStateManager(this)
 
         serviceInfo = serviceInfo.apply {
-            eventTypes =
-                AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED or
-                AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED
+            eventTypes = AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED or
+                        AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED
             feedbackType = AccessibilityServiceInfo.FEEDBACK_GENERIC
-            flags =
-                AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS or
-                AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS
+            flags = AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS or
+                    AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS
             notificationTimeout = 100
         }
 
+        // Background loop for DB flushing
         serviceScope.launch {
             while (isActive) {
                 delay(FLUSH_INTERVAL_MS)
@@ -51,46 +53,87 @@ class ScreenAccessibilityService : AccessibilityService() {
             }
         }
 
-        Log.i(TAG, "AccessibilityService connected")
+        // NEW: Background loop for periodic screen sampling (prevents spamming)
+        serviceScope.launch {
+            while (isActive) {
+                delay(SAMPLING_INTERVAL_MS)
+                captureA11ySnapshot()
+            }
+        }
+
+        Log.i(TAG, "AccessibilityService connected and ready with 10s sampling loop")
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        event ?: return
-
-        val packageName = event.packageName?.toString() ?: return
-        AppStateHolder.lastKnownApp = packageName
-
-        val root = rootInActiveWindow ?: return
-
-        val rawTokens = mutableListOf<String>()
-        extractText(root, rawTokens)
-        root.recycle()
-
-        val cleanTokens = rawTokens
-            .mapNotNull { ContextCleaner.cleanToken(it) }
-            .distinct()
-
-        if (cleanTokens.isEmpty()) return
-
-        val cleanText = cleanTokens.joinToString(separator = " | ")
-
-        if (deduplicator.isDuplicate(packageName, cleanText)) return
-
-        val context = RawContext(
-            app = packageName,
-            text = cleanText,
-            timestamp = System.currentTimeMillis()
-        )
-
-        Log.d(TAG, "[${context.app}] ${context.text}")
-
-        enqueue(ContextEntity(app = context.app, text = context.text, timestamp = context.timestamp, source = "accessibility"))
+        // Only update the detected app on major window transitions.
+        // This prevents minor "content changed" events from system overlays (like the status bar)
+        // from over-writing the actual app the user is interacting with.
+        if (event?.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+            event.packageName?.toString()?.let { pkg ->
+                AppStateHolder.lastKnownApp = pkg
+            }
+        }
     }
 
-    /**
-     * Depth-first traversal of the node tree, collecting non-blank text and
-     * contentDescription values from every node.
-     */
+    private fun captureA11ySnapshot() {
+        // 1. Check if paused
+        if (appStateManager.isPaused()) {
+            Log.v(TAG, "Sampling: Skipping accessibility extraction (Paused)")
+            return
+        }
+
+        // 2. Identify foreground app
+        val packageName = AppStateHolder.lastKnownApp
+        if (packageName == "unknown" || packageName == "com.example.omniview") {
+            return
+        }
+
+        // 3. Blacklist gating
+        if (appStateManager.isBlacklisted(packageName)) {
+            Log.v(TAG, "Sampling: Skipping blacklisted app: $packageName")
+            return
+        }
+
+        // 4. Perform extraction
+        val root = rootInActiveWindow ?: return
+        
+        try {
+            val rawTokens = mutableListOf<String>()
+            extractText(root, rawTokens)
+            root.recycle()
+
+            val cleanTokens = rawTokens
+                .mapNotNull { ContextCleaner.cleanToken(it) }
+                .distinct()
+
+            if (cleanTokens.isEmpty()) return
+
+            val cleanText = cleanTokens.joinToString(separator = " | ")
+
+            if (deduplicator.isDuplicate(packageName, cleanText)) {
+                Log.v(TAG, "Sampling: Duplicate filtered for $packageName")
+                return
+            }
+
+            val context = RawContext(
+                app = packageName,
+                text = cleanText,
+                timestamp = System.currentTimeMillis()
+            )
+
+            Log.d(TAG, "Sampling Success [${context.app}]: ${context.text.take(150)}...")
+
+            enqueue(ContextEntity(
+                app = context.app, 
+                text = context.text, 
+                timestamp = context.timestamp, 
+                source = "accessibility"
+            ))
+        } catch (e: Exception) {
+            Log.e(TAG, "Error during sampling extraction", e)
+        }
+    }
+
     private fun extractText(node: AccessibilityNodeInfo?, out: MutableList<String>) {
         node ?: return
 
@@ -104,7 +147,6 @@ class ScreenAccessibilityService : AccessibilityService() {
         }
     }
 
-    // Called from the main thread (accessibility event callback).
     private fun enqueue(entity: ContextEntity) {
         val snapshot: List<ContextEntity>? = synchronized(buffer) {
             buffer.add(entity)
@@ -114,7 +156,10 @@ class ScreenAccessibilityService : AccessibilityService() {
                 copy
             } else null
         }
-        snapshot?.let { serviceScope.launch { repository.insertAll(it) } }
+        snapshot?.let { items ->
+            Log.i(TAG, "Buffer threshold reached, inserting ${items.size} a11y items to DB")
+            serviceScope.launch { repository.insertAll(items) } 
+        }
     }
 
     private suspend fun flushBuffer() {
@@ -124,6 +169,7 @@ class ScreenAccessibilityService : AccessibilityService() {
             buffer.clear()
             copy
         }
+        Log.i(TAG, "Timed flush: inserting ${snapshot.size} a11y items to DB")
         repository.insertAll(snapshot)
     }
 
@@ -133,6 +179,7 @@ class ScreenAccessibilityService : AccessibilityService() {
 
     override fun onDestroy() {
         super.onDestroy()
+        Log.i(TAG, "AccessibilityService shutting down")
         serviceScope.launch { flushBuffer() }.invokeOnCompletion { serviceScope.cancel() }
     }
 }

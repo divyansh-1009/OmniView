@@ -1,325 +1,352 @@
 package com.example.omniview.service
 
-import android.app.Notification
-import android.app.NotificationChannel
-import android.app.NotificationManager
-import android.app.Service
-import android.content.ContentValues
-import android.content.Intent
+import android.app.*
+import android.content.*
 import android.graphics.Bitmap
-import android.graphics.Color
 import android.graphics.PixelFormat
 import android.hardware.display.DisplayManager
 import android.hardware.display.VirtualDisplay
 import android.media.ImageReader
 import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
+import android.content.pm.ServiceInfo
 import android.net.Uri
-import android.os.Build
-import android.os.Handler
-import android.os.IBinder
-import android.os.Looper
+import android.os.*
 import android.provider.MediaStore
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import com.example.omniview.MainActivity
 import com.example.omniview.ingestion.AppDetectionManager
 import com.example.omniview.ingestion.AppStateManager
-import com.example.omniview.ingestion.PermissionMonitor
 import com.example.omniview.ocr.OcrQueue
-import com.example.omniview.ocr.OcrWorkScheduler
 import com.example.omniview.ocr.PendingOcrItem
-import com.example.omniview.util.AppStateHolder
-import kotlinx.coroutines.*
+import java.io.OutputStream
 import java.nio.ByteBuffer
+import android.widget.Toast
 
 class ScreenshotService : Service() {
 
     private var mediaProjection: MediaProjection? = null
     private var virtualDisplay: VirtualDisplay? = null
-    private lateinit var imageReader: ImageReader
+    private var imageReader: ImageReader? = null
+    private val handler = Handler(Looper.getMainLooper())
+    private var isRunning = false
+    private var isScreenOn = true
+    private var isProjectionRevoked = false
 
-    private val serviceScope = CoroutineScope(Dispatchers.IO + Job())
-
-    private var lastPHash: LongArray? = null
-    
-    private lateinit var appStateManager: AppStateManager
     private lateinit var appDetectionManager: AppDetectionManager
-    private lateinit var permissionMonitor: PermissionMonitor
+    private lateinit var appStateManager: AppStateManager
+    private var lastScreenshotHash: Long? = null
 
     companion object {
-        private const val CHANNEL_ID = "ScreenshotServiceChannel"
+        private const val TAG = "ScreenshotService"
         private const val NOTIFICATION_ID = 1
+        private const val CHANNEL_ID = "ScreenshotServiceChannel"
+        private const val CAPTURE_INTERVAL = 10000L // 10 seconds
+    }
 
-        private const val HASH_SIZE = 8
+    private val screenStateReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            when (intent?.action) {
+                Intent.ACTION_SCREEN_OFF -> {
+                    Log.i(TAG, "Screen OFF - pausing capture loop and releasing display")
+                    isScreenOn = false
+                    releaseVirtualDisplay()
+                    updateNotification()
+                }
+                Intent.ACTION_SCREEN_ON -> {
+                    Log.i(TAG, "Screen ON - attempting resume")
+                    isScreenOn = true
+                    if (mediaProjection != null && !isProjectionRevoked) {
+                        initializeVirtualDisplay()
+                    } else if (isProjectionRevoked) {
+                        Toast.makeText(this@ScreenshotService, "OmniView: Permissions Expired. Tap notification to restart.", Toast.LENGTH_LONG).show()
+                    }
+                    updateNotification()
+                }
+            }
+        }
+    }
 
-        private const val RESIZE = 32
-
-        private const val SIMILARITY_THRESHOLD = 10
+    override fun onCreate() {
+        super.onCreate()
+        Log.i(TAG, "Service onCreate")
+        appDetectionManager = AppDetectionManager(this)
+        appStateManager = AppStateManager(this)
+        
+        val filter = IntentFilter().apply {
+            addAction(Intent.ACTION_SCREEN_ON)
+            addAction(Intent.ACTION_SCREEN_OFF)
+        }
+        registerReceiver(screenStateReceiver, filter)
+        
+        createNotificationChannel()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        // Initialize managers first (REQ-2, REQ-14)
-        appStateManager = AppStateManager(this)
-        appDetectionManager = AppDetectionManager(this)
-        permissionMonitor = PermissionMonitor(this)
+        val resultCode = intent?.getIntExtra("resultCode", Activity.RESULT_CANCELED) ?: Activity.RESULT_CANCELED
+        val data = intent?.getParcelableExtra<Intent>("data")
 
-        startForeground(NOTIFICATION_ID, createNotification())
+        if (resultCode == Activity.RESULT_OK && data != null) {
+            isProjectionRevoked = false
+            startForegroundServiceInternal()
 
-        // Check if capture was paused from previous session (REQ-2)
-        if (appStateManager.isPaused()) {
-            Log.i("ScreenshotService", "Capture is paused, keeping service alive but not capturing")
-            return START_STICKY
+            Log.i(TAG, "Initializing MediaProjection session")
+            val projectionManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+            mediaProjection = projectionManager.getMediaProjection(resultCode, data)
+            
+            mediaProjection?.registerCallback(object : MediaProjection.Callback() {
+                override fun onStop() {
+                    super.onStop()
+                    Log.w(TAG, "MediaProjection revoked by system")
+                    isProjectionRevoked = true
+                    releaseVirtualDisplay()
+                    updateNotification()
+                }
+            }, handler)
+
+            initializeVirtualDisplay()
+            startCaptureLoop()
+        } else if (mediaProjection == null) {
+            Log.w(TAG, "No MediaProjection data. Service in WAITING state.")
+            startForegroundServiceInternal()
         }
-
-        val resultCode = intent?.getIntExtra("resultCode", -1) ?: return START_NOT_STICKY
-        val data: Intent? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            intent.getParcelableExtra("data", Intent::class.java)
-        } else {
-            @Suppress("DEPRECATION")
-            intent.getParcelableExtra("data")
-        }
-        if (data == null) return START_NOT_STICKY
-
-        val projectionManager =
-            getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-
-        mediaProjection = projectionManager.getMediaProjection(resultCode, data)
-
-        startCapturing()
 
         return START_STICKY
     }
 
-    private fun startCapturing() {
-
-        val metrics = resources.displayMetrics
-        val density = metrics.densityDpi
-        val width = metrics.widthPixels
-        val height = metrics.heightPixels
-
-        imageReader = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 2)
-
-        mediaProjection?.registerCallback(object : MediaProjection.Callback() {
-            override fun onStop() {
-                virtualDisplay?.release()
-                virtualDisplay = null
-                serviceScope.cancel()
-            }
-        }, Handler(Looper.getMainLooper()))
-
-        virtualDisplay = mediaProjection?.createVirtualDisplay(
-            "ScreenCapture",
-            width,
-            height,
-            density,
-            DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
-            imageReader.surface,
-            null,
-            null
-        )
-
-        serviceScope.launch {
-            while (isActive) {
-                captureScreenshot()
-                delay(10_000)
-            }
+    private fun startForegroundServiceInternal() {
+        val notification = createNotification()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(
+                NOTIFICATION_ID, 
+                notification, 
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+            )
+        } else {
+            startForeground(NOTIFICATION_ID, notification)
         }
     }
 
-    private fun captureScreenshot() {
+    private fun updateNotification() {
+        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        notificationManager.notify(NOTIFICATION_ID, createNotification())
+    }
 
-        // Check pause state and permission status before attempting capture (REQ-2)
-        if (!permissionMonitor.canCaptureNow(mediaProjection)) {
-            return
-        }
-
-        val image = imageReader.acquireLatestImage() ?: return
-
-        // Check if current app is blacklisted (REQ-11, REQ-12)
-        val currentApp = appDetectionManager.getCurrentActiveApp()
-        Log.d("ScreenshotService", "Detected active app: $currentApp")
+    private fun initializeVirtualDisplay() {
+        if (mediaProjection == null || isProjectionRevoked) return
         
-        if (currentApp != null && appStateManager.isBlacklisted(currentApp)) {
-            Log.i("ScreenshotService", "SKIPPING CAPTURE: App '$currentApp' is blacklisted")
-            image.close()
+        try {
+            val metrics = resources.displayMetrics
+            imageReader = ImageReader.newInstance(metrics.widthPixels, metrics.heightPixels, PixelFormat.RGBA_8888, 2)
+            
+            virtualDisplay = mediaProjection?.createVirtualDisplay(
+                "ScreenshotDisplay",
+                metrics.widthPixels,
+                metrics.heightPixels,
+                metrics.densityDpi,
+                DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
+                imageReader?.surface,
+                null, 
+                handler
+            )
+            Log.i(TAG, "VirtualDisplay initialized: ${metrics.widthPixels}x${metrics.heightPixels}")
+        } catch (e: SecurityException) {
+            Log.e(TAG, "SecurityException: MediaProjection token expired on Android 14+", e)
+            isProjectionRevoked = true
+            releaseVirtualDisplay()
+            updateNotification()
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to initialize VirtualDisplay", e)
+        }
+    }
+
+    private fun releaseVirtualDisplay() {
+        virtualDisplay?.release()
+        virtualDisplay = null
+        imageReader?.close()
+        imageReader = null
+    }
+
+    private fun startCaptureLoop() {
+        if (isRunning) return
+        isRunning = true
+        
+        handler.post(object : Runnable {
+            override fun run() {
+                if (isRunning) {
+                    if (isScreenOn && !isProjectionRevoked) {
+                        captureScreenshot()
+                    }
+                    handler.postDelayed(this, CAPTURE_INTERVAL)
+                }
+            }
+        })
+    }
+
+    private fun stopCaptureLoop() {
+        isRunning = false
+    }
+
+    private fun captureScreenshot() {
+        if (!isScreenOn || isProjectionRevoked) return
+        
+        if (appStateManager.isPaused()) {
+            Log.d(TAG, "Skipping capture: Paused by user.")
             return
         }
 
-        val planes = image.planes
-        val buffer: ByteBuffer = planes[0].buffer
-        val pixelStride = planes[0].pixelStride
-        val rowStride = planes[0].rowStride
-        val rowPadding = rowStride - pixelStride * image.width
+        val foregroundApp = appDetectionManager.getCurrentActiveApp()
+        if (foregroundApp == null) {
+            Log.w(TAG, "Skipping capture: No active app detected.")
+            return
+        }
+        
+        if (appStateManager.isBlacklisted(foregroundApp)) {
+            Log.d(TAG, "Skipping capture: $foregroundApp is blacklisted.")
+            return
+        }
 
-        val bitmap = Bitmap.createBitmap(
-            image.width + rowPadding / pixelStride,
-            image.height,
-            Bitmap.Config.ARGB_8888
-        )
+        val reader = imageReader ?: run {
+            Log.v(TAG, "Attempting to re-acquire display...")
+            initializeVirtualDisplay()
+            return
+        }
 
-        bitmap.copyPixelsFromBuffer(buffer)
+        val image = try { reader.acquireLatestImage() } catch (e: Exception) { null }
+        if (image == null) return
 
-        image.close()
+        try {
+            val metrics = resources.displayMetrics
+            val planes = image.planes
+            val buffer: ByteBuffer = planes[0].buffer
+            val pixelStride = planes[0].pixelStride
+            val rowStride = planes[0].rowStride
+            val rowPadding = rowStride - pixelStride * metrics.widthPixels
 
-        val currentHash = computePHash(bitmap)
-        val previous = lastPHash
+            val bitmap = Bitmap.createBitmap(
+                metrics.widthPixels + rowPadding / pixelStride,
+                metrics.heightPixels,
+                Bitmap.Config.ARGB_8888
+            )
+            bitmap.copyPixelsFromBuffer(buffer)
+            image.close()
 
-        if (previous != null) {
-            val distance = hammingDistance(previous, currentHash)
-            Log.d("ScreenshotService", "Hamming distance from last screenshot: $distance")
-            if (distance <= SIMILARITY_THRESHOLD) {
-                Log.d("ScreenshotService", "Screenshot too similar (distance=$distance), skipping save")
+            processBitmap(bitmap, foregroundApp)
+        } catch (e: Exception) {
+            Log.e(TAG, "Capture error", e)
+            image.close()
+        }
+    }
+
+    private fun processBitmap(bitmap: Bitmap, packageName: String) {
+        val currentHash = calculatePHash(bitmap)
+        
+        if (lastScreenshotHash != null) {
+            val distance = calculateHammingDistance(lastScreenshotHash!!, currentHash)
+            if (distance < 10) {
                 bitmap.recycle()
                 return
             }
         }
 
-        lastPHash = currentHash
-        val savedUri = saveBitmap(bitmap)
-
-        if (savedUri != null) {
-            // Enqueue for OCR processing (from text branch)
-            OcrQueue.enqueue(
-                this,
-                PendingOcrItem(
-                    uri = savedUri.toString(),
-                    app = currentApp ?: AppStateHolder.lastKnownApp,
-                    timestamp = System.currentTimeMillis()
-                )
-            )
-            OcrWorkScheduler.schedule(this)
-        }
-
-        Log.d("ScreenshotService", "Screenshot saved at ${System.currentTimeMillis()}")
+        lastScreenshotHash = currentHash
+        saveScreenshot(bitmap, packageName)
     }
 
-    private fun saveBitmap(bitmap: Bitmap): Uri? {
-
+    private fun saveScreenshot(bitmap: Bitmap, packageName: String) {
         val filename = "screenshot_${System.currentTimeMillis()}.png"
-
-        val resolver = contentResolver
-
         val contentValues = ContentValues().apply {
-            put(MediaStore.Images.Media.DISPLAY_NAME, filename)
-            put(MediaStore.Images.Media.MIME_TYPE, "image/png")
-            put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/ScreenshotService")
-            put(MediaStore.Images.Media.IS_PENDING, 1)
+            put(MediaStore.MediaColumns.DISPLAY_NAME, filename)
+            put(MediaStore.MediaColumns.MIME_TYPE, "image/png")
+            put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/OmniView")
         }
 
-        val imageUri = resolver.insert(
-            MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
-            contentValues
-        ) ?: return null
-
-        resolver.openOutputStream(imageUri)?.use { outputStream ->
-            bitmap.compress(Bitmap.CompressFormat.PNG, 100, outputStream)
+        val uri: Uri? = contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
+        if (uri != null) {
+            try {
+                contentResolver.openOutputStream(uri)?.use { outputStream ->
+                    bitmap.compress(Bitmap.CompressFormat.PNG, 100, outputStream)
+                    Log.i(TAG, "Screenshot saved: $uri ($packageName)")
+                    OcrQueue.enqueue(this, PendingOcrItem(uri.toString(), packageName, System.currentTimeMillis()))
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to save screenshot", e)
+            }
         }
-
-        contentValues.clear()
-        contentValues.put(MediaStore.Images.Media.IS_PENDING, 0)
-        resolver.update(imageUri, contentValues, null, null)
-
-        return imageUri
+        bitmap.recycle()
     }
 
-    private fun computePHash(bitmap: Bitmap): LongArray {
-        val scaled = Bitmap.createScaledBitmap(bitmap, RESIZE, RESIZE, true)
-        val grey = Array(RESIZE) { y ->
-            DoubleArray(RESIZE) { x ->
-                val pixel = scaled.getPixel(x, y)
-                0.299 * Color.red(pixel) + 0.587 * Color.green(pixel) + 114 * Color.blue(pixel)
+    private fun calculatePHash(bitmap: Bitmap): Long {
+        val scaled = Bitmap.createScaledBitmap(bitmap, 8, 8, true)
+        var avg = 0L
+        for (y in 0 until 8) {
+            for (x in 0 until 8) {
+                avg += (scaled.getPixel(x, y) and 0xFF)
             }
         }
-        if (scaled != bitmap) scaled.recycle()
-
-        val dct = applyDCT(grey)
-
-        val coeffs = mutableListOf<Double>()
-        for (y in 0 until HASH_SIZE) {
-            for (x in 0 until HASH_SIZE) {
-                if (x == 0 && y == 0) continue  
-                coeffs.add(dct[y][x])
-            }
-        }
-
-        val sorted = coeffs.sorted()
-        val median = sorted[sorted.size / 2]
-
+        avg /= 64
         var hash = 0L
-        var bit = 0
-        for (y in 0 until HASH_SIZE) {
-            for (x in 0 until HASH_SIZE) {
-                if (x == 0 && y == 0) {
-                    bit++
-                    continue
+        for (y in 0 until 8) {
+            for (x in 0 until 8) {
+                if ((scaled.getPixel(x, y) and 0xFF) >= avg) {
+                    hash = hash or (1L shl (y * 8 + x))
                 }
-                if (dct[y][x] >= median) {
-                    hash = hash or (1L shl bit)
-                }
-                bit++
             }
         }
-
-        return longArrayOf(hash)
+        scaled.recycle()
+        return hash
     }
 
-    private fun applyDCT(input: Array<DoubleArray>): Array<DoubleArray> {
-        val n = input.size
-        val output = Array(n) { DoubleArray(n) }
-        for (u in 0 until n) {
-            for (v in 0 until n) {
-                var sum = 0.0
-                for (i in 0 until n) {
-                    for (j in 0 until n) {
-                        sum += input[i][j] *
-                                Math.cos((2.0 * i + 1) * u * Math.PI / (2.0 * n)) *
-                                Math.cos((2.0 * j + 1) * v * Math.PI / (2.0 * n))
-                    }
-                }
-                val cu = if (u == 0) 1.0 / Math.sqrt(2.0) else 1.0
-                val cv = if (v == 0) 1.0 / Math.sqrt(2.0) else 1.0
-                output[u][v] = (2.0 / n) * cu * cv * sum
-            }
+    private fun calculateHammingDistance(h1: Long, h2: Long): Int {
+        return java.lang.Long.bitCount(h1 xor h2)
+    }
+
+    private fun createNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val serviceChannel = NotificationChannel(
+                CHANNEL_ID,
+                "Screenshot Service Channel",
+                NotificationManager.IMPORTANCE_DEFAULT
+            )
+            val manager = getSystemService(NotificationManager::class.java)
+            manager.createNotificationChannel(serviceChannel)
         }
-        return output
-    }
-
-    private fun hammingDistance(a: LongArray, b: LongArray): Int {
-        return java.lang.Long.bitCount(a[0] xor b[0])
     }
 
     private fun createNotification(): Notification {
+        val pendingIntent = PendingIntent.getActivity(
+            this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE
+        )
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                CHANNEL_ID,
-                "Screenshot Service",
-                NotificationManager.IMPORTANCE_LOW
-            )
-
-            val manager = getSystemService(NotificationManager::class.java)
-            manager.createNotificationChannel(channel)
+        val (title, content) = when {
+            isProjectionRevoked -> "Capture Expired" to "Screen capture permission revoked by system. Tap to restart."
+            !isScreenOn -> "Capture Paused" to "Screen is off. Waiting for wake..."
+            mediaProjection == null -> "Service Waiting" to "Tap to start capturing screen context."
+            else -> "OmniView Active" to "Monitoring screen context..."
         }
 
-        val isPaused = if (::appStateManager.isInitialized) appStateManager.isPaused() else false
-        val contentText = if (isPaused) {
-            "Capture paused (tap to resume)"
-        } else {
-            "Capturing screen every 10 seconds"
-        }
+        val priority = if (isProjectionRevoked) NotificationCompat.PRIORITY_HIGH else NotificationCompat.PRIORITY_DEFAULT
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("Screenshot Service Running")
-            .setContentText(contentText)
+            .setContentTitle(title)
+            .setContentText(content)
             .setSmallIcon(android.R.drawable.ic_menu_camera)
+            .setPriority(priority)
+            .setContentIntent(pendingIntent)
+            .setOngoing(true)
             .build()
     }
 
     override fun onDestroy() {
         super.onDestroy()
-        serviceScope.cancel()
-        virtualDisplay?.release()
+        Log.i(TAG, "Service onDestroy - cleaning up")
+        isRunning = false
+        unregisterReceiver(screenStateReceiver)
+        handler.removeCallbacksAndMessages(null)
+        releaseVirtualDisplay()
         mediaProjection?.stop()
+        mediaProjection = null
     }
 
     override fun onBind(intent: Intent?): IBinder? = null

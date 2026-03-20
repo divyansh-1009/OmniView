@@ -5,6 +5,7 @@ import android.content.Intent
 import android.media.projection.MediaProjectionManager
 import android.os.Bundle
 import android.provider.Settings
+import android.os.Build
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -50,7 +51,10 @@ class MainActivity : ComponentActivity() {
                 ContextCompat.startForegroundService(this, serviceIntent)
             }
         }
-
+    
+    private val requestPermissionLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { _ -> }
+    
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -59,6 +63,10 @@ class MainActivity : ComponentActivity() {
         projectionManager =
             getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
         appStateManager = AppStateManager(this)
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            requestPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+        }
 
         setContent {
             OmniViewTheme {
@@ -77,6 +85,12 @@ class MainActivity : ComponentActivity() {
                             onPauseResume = { togglePause() },
                             onOpenSettings = { openSettings() },
                             onOpenUsageAccess = { openUsageAccessSettings() },
+                            onOpenAccessibility = { openAccessibilitySettings() },
+                            onRequestNotifications = { 
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                    requestPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                                }
+                            },
                             onRunOcrNow = { runOcrNow() },
                             appStateManager = appStateManager
                         )
@@ -117,6 +131,16 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun openAccessibilitySettings() {
+        try {
+            val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+            startActivity(intent)
+        } catch (e: Exception) {
+            val intent = Intent(Settings.ACTION_SETTINGS)
+            startActivity(intent)
+        }
+    }
+
     private fun runOcrNow() {
         OcrWorkScheduler.scheduleNow(this)
     }
@@ -128,6 +152,8 @@ fun MainScreen(
     onPauseResume: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenUsageAccess: () -> Unit,
+    onOpenAccessibility: () -> Unit,
+    onRequestNotifications: () -> Unit,
     onRunOcrNow: () -> Unit,
     appStateManager: AppStateManager
 ) {
@@ -179,6 +205,19 @@ fun MainScreen(
         
         Button(onClick = onOpenUsageAccess) {
             Text("Grant Usage Access")
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        Button(onClick = onOpenAccessibility) {
+            Text("Enable Accessibility Service")
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            Spacer(modifier = Modifier.height(12.dp))
+            Button(onClick = onRequestNotifications) {
+                Text("Grant Notification Permission")
+            }
         }
 
         Spacer(modifier = Modifier.height(48.dp))

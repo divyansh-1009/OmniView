@@ -27,6 +27,8 @@ object OcrProcessor {
      * Must be called from a background coroutine (Dispatchers.IO).
      */
     suspend fun process(context: Context, item: PendingOcrItem): ExtractedContext? {
+        Log.d(TAG, "Starting OCR for ${item.uri} (app=${item.app})")
+        
         return try {
             val uri = Uri.parse(item.uri)
             val bitmap = context.contentResolver.openInputStream(uri)?.use { stream ->
@@ -37,6 +39,7 @@ object OcrProcessor {
             }
 
             val inputImage = InputImage.fromBitmap(bitmap, 0)
+            Log.v(TAG, "InputImage created from bitmap (${bitmap.width}x${bitmap.height})")
 
             suspendCoroutine { cont ->
                 recognizer.process(inputImage)
@@ -47,9 +50,13 @@ object OcrProcessor {
                             .distinct()
                             .joinToString("\n")
                             .trim()
+                        
                         if (text.isBlank()) {
+                            Log.i(TAG, "OCR complete for ${item.app}: No text found.")
                             cont.resume(null)
                         } else {
+                            Log.i(TAG, "OCR Success [${item.app}]: Extracted ${text.length} chars.")
+                            Log.v(TAG, "Extracted text: ${text.take(300)}...")
                             cont.resume(
                                 ExtractedContext(
                                     app = item.app,

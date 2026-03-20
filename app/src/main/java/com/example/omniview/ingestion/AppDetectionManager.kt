@@ -1,119 +1,88 @@
 package com.example.omniview.ingestion
 
-import android.app.ActivityManager
 import android.app.usage.UsageEvents
 import android.app.usage.UsageStatsManager
 import android.content.Context
 import android.util.Log
-import kotlin.math.abs
+import com.example.omniview.util.AppStateHolder
 
 /**
  * Detects the currently active/foreground application package name.
- * Uses dual-method approach: AccessibilityService (preferred) with UsageStatsManager fallback.
- *
- * Responsibilities:
- * - Query current foreground app via Accessibility API (if available)
- * - Fallback to UsageStatsManager for app detection
- * - Provide thread-safe, error-resilient app detection
- * - Support REQ-11 (maintain blacklist) and REQ-12 (block capture for blacklisted apps)
+ * Uses a layered approach:
+ * 1. AppStateHolder (updated in real-time by Accessibility Service)
+ * 2. UsageStatsManager (fallback with a wide query window)
  */
 class AppDetectionManager(context: Context) {
 
     private val appContext = context.applicationContext
     private val usageStatsManager = context.getSystemService(Context.USAGE_STATS_SERVICE) as? UsageStatsManager
-    private val activityManager = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
+    private val myPackage = context.packageName
 
     companion object {
         private const val TAG = "AppDetectionManager"
+        private const val DETECTION_WINDOW_MS = 60 * 60 * 1000L // 1 hour
     }
 
     /**
      * Get the currently active application package name.
-     * Uses UsageStatsManager as the primary detection method.
-     * Returns null if detection fails or permission is not granted.
      */
     fun getCurrentActiveApp(): String? {
+        // Priority 1: Real-time data from Accessibility Service
+        val accessibilityApp = AppStateHolder.lastKnownApp
+        if (accessibilityApp != "unknown" && 
+            accessibilityApp != myPackage && 
+            accessibilityApp != "com.android.systemui") {
+            Log.v(TAG, "Detection: Using real-time Accessibility data: $accessibilityApp")
+            return accessibilityApp
+        }
+
+        // Priority 2: Fallback to UsageStatsManager
         return try {
             val usageStatsResult = getActiveAppViaUsageStats()
             if (usageStatsResult != null) {
-                Log.d(TAG, "Active app detected: $usageStatsResult")
+                Log.v(TAG, "Detection: Fallback to UsageStats successful: $usageStatsResult")
                 return usageStatsResult
             }
 
-            Log.w(TAG, "Failed to detect active app. Ensure Usage Access permission is granted.")
+            Log.w(TAG, "Detection failed: No recent app transitions found.")
             null
         } catch (e: Exception) {
-            Log.e(TAG, "Error detecting active app", e)
+            Log.e(TAG, "Detection error", e)
             null
         }
     }
 
-
     /**
-     * Detection method using UsageStatsManager to get foreground app.
-     * Requires PACKAGE_USAGE_STATS permission (Usage Access).
-     *
-     * Uses a 2-second query window to ensure we catch recent transitions.
+     * Detection method using UsageStatsManager.
+     * Searches for the absolute most recent ACTIVITY_RESUMED event in a wide window.
      */
     private fun getActiveAppViaUsageStats(): String? {
-        return try {
-            if (usageStatsManager == null) {
-                Log.w(TAG, "UsageStatsManager is null")
-                return null
-            }
+        if (usageStatsManager == null) return null
 
-            val currentTime = System.currentTimeMillis()
-            val queryWindowStart = currentTime - 2000  // 2 seconds back
+        val currentTime = System.currentTimeMillis()
+        val queryWindowStart = currentTime - DETECTION_WINDOW_MS
+        
+        val events = usageStatsManager.queryEvents(queryWindowStart, currentTime) ?: return null
+
+        var mostRecentPackage: String? = null
+        var mostRecentTime = 0L
+
+        val event = UsageEvents.Event()
+        while (events.hasNextEvent()) {
+            events.getNextEvent(event)
             
-            val events = usageStatsManager.queryEvents(queryWindowStart, currentTime)
-            if (events == null) {
-                Log.w(TAG, "UsageStatsManager.queryEvents returned null")
-                return null
-            }
-
-            var mostRecentPackage: String? = null
-            var mostRecentTime = 0L
-
-            val event = UsageEvents.Event()
-            var eventCount = 0
-            while (events.hasNextEvent()) {
-                events.getNextEvent(event)
-                eventCount++
+            // Only consider ACTIVITY_RESUMED events (apps coming to foreground)
+            if (event.eventType == UsageEvents.Event.ACTIVITY_RESUMED) {
+                // Ignore our own app - we want to know what's active when we're in background
+                if (event.packageName == myPackage) continue
                 
-                // Track the most recent ACTIVITY_RESUMED event
-                if (event.eventType == UsageEvents.Event.ACTIVITY_RESUMED) {
-                    if (event.timeStamp > mostRecentTime) {
-                        mostRecentTime = event.timeStamp
-                        mostRecentPackage = event.packageName
-                    }
+                if (event.timeStamp > mostRecentTime) {
+                    mostRecentTime = event.timeStamp
+                    mostRecentPackage = event.packageName
                 }
             }
-
-            Log.v(TAG, "Analyzed $eventCount usage events in window. Most recent: $mostRecentPackage")
-
-            if (mostRecentPackage != null && mostRecentPackage.isNotEmpty()) {
-                // Ignore our own app if detected, we want to know what's BEHIND us or active
-                // Actually, if we are in the foreground (Settings), we should report it correctly
-                return mostRecentPackage
-            }
-
-            null
-        } catch (e: Exception) {
-            Log.e(TAG, "UsageStatsManager method failed: ${e.message}")
-            null
         }
-    }
 
-    /**
-     * Check if given package name appears to be a system package.
-     * Useful for avoiding false positives with launcher/system UI.
-     */
-    private fun isSystemPackage(packageName: String): Boolean {
-        val systemPrefixes = listOf(
-            "com.android",
-            "android.",
-            "com.google.android.systemui"
-        )
-        return systemPrefixes.any { packageName.startsWith(it) }
+        return mostRecentPackage
     }
 }
