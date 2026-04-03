@@ -88,14 +88,20 @@ class RAGPipeline(
 
         return buildString {
             append("<start_of_turn>user\n")
-            append("You are a helpful assistant with access to the user's recent screen activity.\n")
-            append("Answer the question concisely using only the context below.\n")
-            append("If the context doesn't contain the answer, say you don't know.\n\n")
-            append("=== Context from screen history ===\n")
+            append("You are OmniView, a personal memory assistant. You help users recall things they have saved — screenshots, notes, and memories.\n\n")
+            append("STRICT RULES:\n")
+            append("- ONLY use the context provided below to answer. Never use outside knowledge.\n")
+            append("- If the answer is not in the context, say: \"I don't have anything saved about that.\"\n")
+            append("- If the user says hi or greets you, greet them back. Do not share any information unless asked.\n")
+            append("- Always give a detailed and helpful answer when context is available. Do not give one-line answers. Explain what you found, where it might be from, and why it is relevant.\n")
+            append("- Never guess or make things up. If context is partial, say what you found and mention it may be incomplete.\n")
+            append("- Keep tone friendly and calm. Not robotic.\n\n")
+            append("CONTEXT:\n")
             append(contextBlock)
-            append("\n\n=== Question ===\n")
+            append("\n\nRemember: only use the above context. Nothing else.\n\n")
+            append("USER REQUEST:\n")
             append(query)
-            append("<end_of_turn>\n<start_of_turn>model\n")
+            append("\n<end_of_turn>\n<start_of_turn>model\n")
         }
     }
 }
