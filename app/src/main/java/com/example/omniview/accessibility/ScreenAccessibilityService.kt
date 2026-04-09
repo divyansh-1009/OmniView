@@ -8,6 +8,8 @@ import android.view.accessibility.AccessibilityNodeInfo
 import com.example.omniview.db.ContextDatabase
 import com.example.omniview.db.ContextEntity
 import com.example.omniview.db.ContextRepository
+import com.example.omniview.embedding.PendingEmbedItem
+import com.example.omniview.embedding.PipelineManager
 import com.example.omniview.model.RawContext
 import com.example.omniview.processing.ContextCleaner
 import com.example.omniview.processing.ContextDeduplicator
@@ -125,6 +127,18 @@ class ScreenAccessibilityService : AccessibilityService() {
             copy
         }
         repository.insertAll(snapshot)
+        // Queue each item for embedding — processed by EmbeddingWorker when charging.
+        snapshot.forEach { entity ->
+            PipelineManager.enqueue(
+                PendingEmbedItem(
+                    accessText     = entity.text,
+                    ocrText        = null,
+                    appName        = entity.app,
+                    screenshotPath = null,
+                    timestamp      = entity.timestamp
+                )
+            )
+        }
     }
 
     override fun onInterrupt() {

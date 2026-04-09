@@ -2,6 +2,7 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.ksp)
+    alias(libs.plugins.objectbox)
 }
 
 android {
@@ -34,6 +35,11 @@ android {
     buildFeatures {
         compose = true
     }
+
+    androidResources {
+        // TFLite models must not be compressed so the runtime can memory-map them.
+        noCompress += "tflite"
+    }
 }
 
 dependencies {
@@ -51,6 +57,10 @@ dependencies {
     implementation(libs.room.ktx)
     ksp(libs.room.compiler)
     implementation(libs.work.runtime.ktx)
+    implementation(libs.objectbox.android)
+    implementation(libs.objectbox.kotlin)
+    ksp(libs.objectbox.processor)
+    implementation(libs.tflite)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

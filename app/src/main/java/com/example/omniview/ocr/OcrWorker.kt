@@ -7,9 +7,8 @@ import android.os.BatteryManager
 import android.util.Log
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
-import com.example.omniview.db.ContextDatabase
-import com.example.omniview.db.ContextRepository
-import com.example.omniview.db.toEntity
+import com.example.omniview.embedding.PendingEmbedItem
+import com.example.omniview.embedding.PipelineManager
 
 class OcrWorker(
     context: Context,
@@ -29,10 +28,10 @@ class OcrWorker(
 
         if (!forceRun) {
             val charging = isCharging()
-            val battery = batteryLevel()
+            val battery  = batteryLevel()
             Log.d(TAG, "Condition check — charging=$charging, battery=$battery%")
             if (!charging || battery < BATTERY_THRESHOLD) {
-                Log.i(TAG, "Conditions not met (charging=$charging, battery=$battery%) — skipping, queue preserved")
+                Log.i(TAG, "Conditions not met — skipping, queue preserved")
                 return Result.success()
             }
             Log.i(TAG, "Conditions met — charging=$charging, battery=$battery%")
@@ -47,12 +46,7 @@ class OcrWorker(
         }
 
         Log.i(TAG, "Processing ${items.size} queued screenshots")
-
-        val repository = ContextRepository(
-            ContextDatabase.getInstance(applicationContext).contextDao()
-        )
-
-        val results = mutableListOf<com.example.omniview.model.ExtractedContext>()
+        var enqueued = 0
 
         for ((index, item) in items.withIndex()) {
             if (!forceRun && (!isCharging() || batteryLevel() < BATTERY_THRESHOLD)) {
@@ -64,24 +58,33 @@ class OcrWorker(
 
             val result = OcrProcessor.process(applicationContext, item)
             if (result != null) {
-                Log.d(TAG, "[${result.app}] ${result.text.take(200)}")
-                results.add(result)
+                Log.d(TAG, "[${result.app}] OCR extracted ${result.text.length} chars")
+
+                // Raw OCR text is NOT stored — queue for embedding only.
+                // screenshotPath = item.uri so PipelineManager.cleanup() can delete it
+                // after the embedding is generated.
+                PipelineManager.enqueue(
+                    PendingEmbedItem(
+                        accessText     = null,
+                        ocrText        = result.text,
+                        appName        = result.app,
+                        screenshotPath = item.uri,
+                        timestamp      = result.timestamp
+                    )
+                )
+                enqueued++
             }
         }
 
-        repository.insertAll(results.map { it.toEntity() })
-        Log.i(TAG, "OCR complete — stored ${results.size} / ${items.size} results")
-
+        Log.i(TAG, "OCR complete — $enqueued / ${items.size} results queued for embedding")
         return Result.success()
     }
 
     private fun isCharging(): Boolean {
-        // BatteryManager.isCharging is unreliable on emulators; the sticky
-        // ACTION_BATTERY_CHANGED broadcast is updated by Extended Controls.
         val intent = applicationContext.registerReceiver(
             null, IntentFilter(Intent.ACTION_BATTERY_CHANGED)
         ) ?: return false
-        val status = intent.getIntExtra(BatteryManager.EXTRA_STATUS, -1)
+        val status  = intent.getIntExtra(BatteryManager.EXTRA_STATUS, -1)
         val plugged = intent.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0)
         return plugged != 0 &&
                 (status == BatteryManager.BATTERY_STATUS_CHARGING ||
