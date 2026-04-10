@@ -394,7 +394,14 @@ fun SettingsDrawerContent(
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+        val localContext = androidx.compose.ui.platform.LocalContext.current
+        Row(
+            modifier = Modifier.fillMaxWidth().clickable { 
+                onCloseDrawer()
+                localContext.startActivity(Intent(localContext, AboutActivity::class.java))
+            }.padding(vertical = 12.dp),
+            horizontalArrangement = Arrangement.Center
+        ) {
             Text("About OmniView", color = Color.Gray, fontSize = 12.sp)
         }
     }

@@ -35,6 +35,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.background
 import com.omniview.app.storage.AppStateManager
 import com.omniview.app.ui.theme.OmniViewTheme
 import android.content.Context
@@ -60,7 +65,7 @@ class SettingsActivity : ComponentActivity() {
             OmniViewTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
-                    color = MaterialTheme.colorScheme.background
+                    color = Color(0xFF140D0B)
                 ) {
                     SettingsScreen(
                         appStateManager = appStateManager,
@@ -101,17 +106,16 @@ fun SettingsScreen(
             .fillMaxSize()
             .padding(16.dp)
     ) {
-        // Header
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(bottom = 16.dp)
         ) {
-            Text("Settings - App Blacklist", style = MaterialTheme.typography.headlineSmall)
+            Text("App Blacklist", style = MaterialTheme.typography.titleLarge, color = Color.White, fontWeight = FontWeight.Bold)
         }
 
         // Add app section
-        Text("Add New App to Blacklist", style = MaterialTheme.typography.titleMedium)
+        Text("Add New App to Blacklist", style = MaterialTheme.typography.titleMedium, color = Color.LightGray)
         Spacer(modifier = Modifier.height(8.dp))
 
         TextField(
@@ -142,18 +146,20 @@ fun SettingsScreen(
                         }
                     }
                 },
+                colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = Color(0xFF1F1817)),
                 modifier = Modifier.weight(1f)
             ) {
-                Text("Add Package")
+                Text("Add Package", color = Color.White)
             }
             
             Spacer(modifier = Modifier.width(8.dp))
             
             Button(
                 onClick = { showAppPicker = true },
+                colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = Color(0xFFFF5722)),
                 modifier = Modifier.weight(1f)
             ) {
-                Text("Select App")
+                Text("Select App", color = Color.White)
             }
         }
 
@@ -169,11 +175,11 @@ fun SettingsScreen(
         Spacer(modifier = Modifier.height(24.dp))
 
         // Blacklist section
-        Text("Blacklisted Apps (${blacklist.size})", style = MaterialTheme.typography.titleMedium)
+        Text("Blacklisted Apps (${blacklist.size})", style = MaterialTheme.typography.titleMedium, color = Color.LightGray)
         Spacer(modifier = Modifier.height(8.dp))
 
         if (blacklist.isEmpty()) {
-            Text("No apps blacklisted", style = MaterialTheme.typography.bodyMedium)
+            Text("No apps blacklisted", style = MaterialTheme.typography.bodyMedium, color = Color.Gray)
         } else {
             LazyColumn(
                 modifier = Modifier
@@ -184,12 +190,16 @@ fun SettingsScreen(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(vertical = 4.dp),
+                            .padding(vertical = 4.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Color(0xFF1F1817))
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
                             packageName,
                             style = MaterialTheme.typography.bodyMedium,
+                            color = Color.White,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier
@@ -204,9 +214,10 @@ fun SettingsScreen(
                                 appStateManager.removeFromBlacklist(packageName)
                                 blacklist = appStateManager.getBlacklist()
                             },
+                            colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = Color(0xFF3B1A1A)),
                             modifier = Modifier.widthIn(min = 90.dp)
                         ) {
-                            Text("Remove")
+                            Text("Remove", color = Color(0xFFF87171))
                         }
                     }
                 }
@@ -223,9 +234,10 @@ fun SettingsScreen(
                     blacklist = appStateManager.getBlacklist()
                     errorMessage = ""
                 },
+                colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = Color(0xFF3B1A1A)),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Text("Clear All")
+                Text("Clear All", color = Color(0xFFF87171), fontWeight = FontWeight.Bold)
             }
 
             Spacer(modifier = Modifier.height(8.dp))
@@ -234,9 +246,10 @@ fun SettingsScreen(
         // Back button
         Button(
             onClick = onBack,
+            colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = Color(0xFF1F1817)),
             modifier = Modifier.fillMaxWidth()
         ) {
-            Text("Back")
+            Text("Back", color = Color.White)
         }
     }
 }
@@ -272,7 +285,8 @@ fun AppPickerList(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Select App to Blacklist") },
+        title = { Text("Select App to Blacklist", color = Color.White) },
+        containerColor = Color(0xFF140D0B),
         text = {
             LazyColumn(modifier = Modifier.height(400.dp)) {
                 items(apps) { app ->
@@ -282,16 +296,16 @@ fun AppPickerList(
                             .clickable { onAppSelected(app) }
                             .padding(vertical = 12.dp)
                     ) {
-                        Text(app.name, style = MaterialTheme.typography.bodyLarge)
+                        Text(app.name, style = MaterialTheme.typography.bodyLarge, color = Color.White)
                         Text(
                             app.packageName, 
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = Color.Gray
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         HorizontalDivider(
                             thickness = 0.5.dp, 
-                            color = MaterialTheme.colorScheme.outlineVariant
+                            color = Color(0xFF2B201E)
                         )
                     }
                 }

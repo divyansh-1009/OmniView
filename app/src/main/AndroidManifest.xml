@@ -49,6 +49,13 @@
             android:label="Settings"
             android:theme="@style/Theme.OmniView" />
 
+        <!-- About Activity -->
+        <activity
+            android:name=".AboutActivity"
+            android:exported="false"
+            android:label="About"
+            android:theme="@style/Theme.OmniView" />
+
         <!-- Screenshot Foreground Service -->
         <service
             android:name="com.omniview.app.ingestion.ScreenshotService"
