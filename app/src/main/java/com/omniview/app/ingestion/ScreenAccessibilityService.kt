@@ -100,6 +100,7 @@ class ScreenAccessibilityService : AccessibilityService() {
         try {
             val rawTokens = mutableListOf<String>()
             extractText(root, rawTokens)
+            @Suppress("DEPRECATION") // recycle() is a no-op on API 33+; needed below for older versions
             root.recycle()
 
             val cleanTokens = rawTokens
@@ -143,6 +144,7 @@ class ScreenAccessibilityService : AccessibilityService() {
         for (i in 0 until node.childCount) {
             val child = node.getChild(i) ?: continue
             extractText(child, out)
+            @Suppress("DEPRECATION") // auto-managed on API 33+
             child.recycle()
         }
     }

@@ -1,5 +1,4 @@
 package com.omniview.app.ui
-
 import android.app.Activity
 import android.content.Intent
 import android.media.projection.MediaProjectionManager
@@ -32,9 +31,10 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.omniview.app.storage.AppStateManager
 import com.omniview.app.intelligence.OcrWorkScheduler
+import com.omniview.app.intelligence.EmbeddingWorkScheduler
 import com.omniview.app.ingestion.ScreenshotService
-import com.omniview.app.ui.SettingsActivity
 import com.omniview.app.ui.theme.OmniViewTheme
+import com.omniview.app.ingestion.ScreenshotService.Companion.ACTION_RESTART_CAPTURE
 
 class MainActivity : ComponentActivity() {
 
@@ -43,7 +43,7 @@ class MainActivity : ComponentActivity() {
 
     private val screenCaptureLauncher =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-            if (result.resultCode == Activity.RESULT_OK && result.data != null) {
+            if (result.resultCode == RESULT_OK && result.data != null) {
                 val serviceIntent = Intent(this, ScreenshotService::class.java).apply {
                     putExtra("resultCode", result.resultCode)
                     putExtra("data", result.data)
@@ -92,11 +92,24 @@ class MainActivity : ComponentActivity() {
                                 }
                             },
                             onRunOcrNow = { runOcrNow() },
+                            onRunEmbeddingNow = { runEmbeddingNow() },
                             appStateManager = appStateManager
                         )
                     }
                 }
             }
+        }
+
+        // Handle 'Restart Capture' tap from the expired-projection notification
+        if (intent?.action == ACTION_RESTART_CAPTURE) {
+            requestScreenCapture()
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        if (intent.action == ACTION_RESTART_CAPTURE) {
+            requestScreenCapture()
         }
     }
 
@@ -124,7 +137,7 @@ class MainActivity : ComponentActivity() {
         try {
             val intent = Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)
             startActivity(intent)
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             // Fallback to general settings if specific path fails
             val intent = Intent(Settings.ACTION_SETTINGS)
             startActivity(intent)
@@ -135,7 +148,7 @@ class MainActivity : ComponentActivity() {
         try {
             val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
             startActivity(intent)
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             val intent = Intent(Settings.ACTION_SETTINGS)
             startActivity(intent)
         }
@@ -143,6 +156,10 @@ class MainActivity : ComponentActivity() {
 
     private fun runOcrNow() {
         OcrWorkScheduler.scheduleNow(this)
+    }
+
+    private fun runEmbeddingNow() {
+        EmbeddingWorkScheduler.scheduleNow(this)
     }
 }
 
@@ -155,6 +172,7 @@ fun MainScreen(
     onOpenAccessibility: () -> Unit,
     onRequestNotifications: () -> Unit,
     onRunOcrNow: () -> Unit,
+    onRunEmbeddingNow: () -> Unit,
     appStateManager: AppStateManager
 ) {
     val isPaused = remember { mutableStateOf(appStateManager.isPaused()) }
@@ -228,9 +246,18 @@ fun MainScreen(
         
         Button(
             onClick = onRunOcrNow,
-            modifier = Modifier.padding(bottom = 16.dp)
+            modifier = Modifier.padding(bottom = 8.dp)
         ) {
             Text("Run OCR Processing Now")
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Button(
+            onClick = onRunEmbeddingNow,
+            modifier = Modifier.padding(bottom = 16.dp)
+        ) {
+            Text("Run Embedding Generation Now")
         }
     }
 }

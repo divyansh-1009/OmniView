@@ -10,15 +10,20 @@ plugins {
 android {
     namespace = "com.omniview.app.ui"
     compileSdk = 36
+    ndkVersion = "28.0.12916984"
 
     defaultConfig {
         applicationId = "com.omniview.app.ui"
-        minSdk = 24
+        minSdk = 26
         targetSdk = 36
         versionCode = 1
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        ndk {
+            abiFilters += listOf("arm64-v8a")
+        }
     }
 
     buildTypes {
@@ -36,6 +41,7 @@ android {
     }
     buildFeatures {
         compose = true
+        prefab = true
     }
 }
 
@@ -48,7 +54,10 @@ kotlin {
 dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
+    implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.10.0")
+    implementation("androidx.activity:activity-ktx:1.12.4")
     implementation(libs.androidx.activity.compose)
+    implementation("androidx.recyclerview:recyclerview:1.4.0")
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.ui.graphics)
@@ -63,6 +72,15 @@ dependencies {
     implementation(libs.room.ktx)
     ksp(libs.room.compiler)
     implementation(libs.work.runtime.ktx)
+    implementation("androidx.sqlite:sqlite-ktx:2.5.0")
+    implementation("com.google.ai.edge.litert:litert:2.1.1")
+    implementation("com.google.ai.edge.litertlm:litertlm-android:0.9.0-alpha06")
+    val sqliteVecAar = file("libs/sqlite-vec.aar")
+    if (sqliteVecAar.exists()) {
+        implementation(files(sqliteVecAar))
+    } else {
+        logger.warn("sqlite-vec.aar not found at ${sqliteVecAar.path}; VectorStore will use its Kotlin fallback until the AAR is added.")
+    }
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

@@ -11,6 +11,7 @@ import androidx.work.WorkerParameters
 import com.omniview.app.storage.ContextDatabase
 import com.omniview.app.storage.ContextRepository
 import com.omniview.app.storage.toEntity
+import com.omniview.app.intelligence.EmbeddingWorkScheduler
 
 class OcrWorker(
     context: Context,
@@ -75,6 +76,9 @@ class OcrWorker(
         if (results.isNotEmpty()) {
             repository.insertAll(results.map { it.toEntity() })
             Log.i(TAG, "Batch Complete: Stored ${results.size} / ${items.size} results to database.")
+            // Automatically chain embedding generation right after OCR succeeds
+            EmbeddingWorkScheduler.scheduleNow(applicationContext)
+            Log.d(TAG, "EmbeddingWorker scheduled to run now.")
         } else {
             Log.w(TAG, "Batch Complete: Processed ${items.size} items but found no usable text.")
         }
