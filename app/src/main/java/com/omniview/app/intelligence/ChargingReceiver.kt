@@ -26,13 +26,20 @@ class ChargingReceiver : BroadcastReceiver() {
             null, IntentFilter(Intent.ACTION_BATTERY_CHANGED)
         ) ?: return
         val battery = batteryIntent.getIntExtra(BatteryManager.EXTRA_LEVEL, 0)
-        val queueSize = OcrQueue.size(context)
+        val ocrQueueSize = OcrQueue.size(context)
+        val embedQueueSize = EmbeddingQueue.size(context)
 
-        Log.i(TAG, "Charger connected — battery=$battery%, queue=$queueSize items")
+        Log.i(TAG, "Charger connected — battery=$battery%, ocrQueue=$ocrQueueSize, embedQueue=$embedQueueSize")
 
-        if (battery >= BATTERY_THRESHOLD && queueSize > 0) {
-            Log.i(TAG, "Conditions met on plug-in — scheduling OCR immediately")
-            OcrWorkScheduler.schedule(context)
+        if (battery >= BATTERY_THRESHOLD) {
+            if (ocrQueueSize > 0) {
+                Log.i(TAG, "Conditions met on plug-in — scheduling OCR immediately")
+                OcrWorkScheduler.schedule(context)
+            }
+            if (embedQueueSize > 0) {
+                Log.i(TAG, "Conditions met on plug-in — scheduling embedding immediately")
+                EmbeddingWorkScheduler.schedule(context)
+            }
         }
     }
 }

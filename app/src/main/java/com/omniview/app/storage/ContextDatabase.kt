@@ -6,13 +6,14 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 
 @Database(
-    entities = [ContextEntity::class],
-    version = 1,
+    entities = [ContextEntity::class, EmbeddingEntity::class],
+    version = 2,
     exportSchema = false
 )
 abstract class ContextDatabase : RoomDatabase() {
 
     abstract fun contextDao(): ContextDao
+    abstract fun embeddingDao(): EmbeddingDao
 
     companion object {
         @Volatile private var INSTANCE: ContextDatabase? = null
@@ -23,7 +24,12 @@ abstract class ContextDatabase : RoomDatabase() {
                     context.applicationContext,
                     ContextDatabase::class.java,
                     "omniview.db"
-                ).build().also { INSTANCE = it }
+                )
+                    // Dev/testing safety: allow DB reset on schema changes.
+                    .fallbackToDestructiveMigrationOnDowngrade()
+                    .fallbackToDestructiveMigration()
+                    .build()
+                    .also { INSTANCE = it }
             }
     }
 }

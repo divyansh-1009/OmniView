@@ -12,6 +12,9 @@ import com.omniview.app.storage.AppStateManager
 import com.omniview.app.storage.RawContext
 import com.omniview.app.intelligence.ContextCleaner
 import com.omniview.app.intelligence.ContextDeduplicator
+import com.omniview.app.intelligence.EmbeddingQueue
+import com.omniview.app.intelligence.EmbeddingWorkScheduler
+import com.omniview.app.intelligence.PendingEmbeddingItem
 import com.omniview.app.storage.AppStateHolder
 import kotlinx.coroutines.*
 
@@ -158,7 +161,22 @@ class ScreenAccessibilityService : AccessibilityService() {
         }
         snapshot?.let { items ->
             Log.i(TAG, "Buffer threshold reached, inserting ${items.size} a11y items to DB")
-            serviceScope.launch { repository.insertAll(items) } 
+            serviceScope.launch {
+                repository.insertAll(items)
+                // Enqueue for embedding generation
+                items.forEach { entity ->
+                    EmbeddingQueue.enqueue(
+                        applicationContext,
+                        PendingEmbeddingItem(
+                            contextEntityId = entity.id,
+                            text = entity.text,
+                            app = entity.app,
+                            timestamp = entity.timestamp
+                        )
+                    )
+                }
+                EmbeddingWorkScheduler.schedule(applicationContext)
+            } 
         }
     }
 

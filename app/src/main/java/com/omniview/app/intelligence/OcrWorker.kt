@@ -75,6 +75,20 @@ class OcrWorker(
         if (results.isNotEmpty()) {
             repository.insertAll(results.map { it.toEntity() })
             Log.i(TAG, "Batch Complete: Stored ${results.size} / ${items.size} results to database.")
+
+            // Enqueue successful OCR results for embedding generation
+            results.forEach { result ->
+                EmbeddingQueue.enqueue(
+                    applicationContext,
+                    PendingEmbeddingItem(
+                        contextEntityId = 0,
+                        text = result.text,
+                        app = result.app,
+                        timestamp = result.timestamp
+                    )
+                )
+            }
+            EmbeddingWorkScheduler.schedule(applicationContext)
         } else {
             Log.w(TAG, "Batch Complete: Processed ${items.size} items but found no usable text.")
         }
