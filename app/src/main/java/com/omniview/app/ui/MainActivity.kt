@@ -10,32 +10,48 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.material3.Button
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.omniview.app.storage.AppStateManager
 import com.omniview.app.intelligence.OcrWorkScheduler
 import com.omniview.app.intelligence.EmbeddingWorkScheduler
 import com.omniview.app.ingestion.ScreenshotService
-import com.omniview.app.ui.SettingsActivity
 import com.omniview.app.ui.theme.OmniViewTheme
+
+// ── Navigation destinations ───────────────────────────────────────────────────
+
+private enum class AppTab(val label: String, val icon: ImageVector) {
+    HOME("Home", Icons.Default.Home),
+    ASK("Ask AI", Icons.Default.Search)
+}
+
+// ── Activity ─────────────────────────────────────────────────────────────────
 
 class MainActivity : ComponentActivity() {
 
@@ -52,10 +68,10 @@ class MainActivity : ComponentActivity() {
                 ContextCompat.startForegroundService(this, serviceIntent)
             }
         }
-    
+
     private val requestPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { _ -> }
-    
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -71,33 +87,21 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             OmniViewTheme {
-                Surface(
-                    modifier = Modifier.fillMaxSize(),
-                    color = MaterialTheme.colorScheme.background
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .statusBarsPadding(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        MainScreen(
-                            onStartCapture = { requestScreenCapture() },
-                            onPauseResume = { togglePause() },
-                            onOpenSettings = { openSettings() },
-                            onOpenUsageAccess = { openUsageAccessSettings() },
-                            onOpenAccessibility = { openAccessibilitySettings() },
-                            onRequestNotifications = { 
-                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                                    requestPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
-                                }
-                            },
-                            onRunOcrNow = { runOcrNow() },
-                            onRunEmbeddingNow = { runEmbeddingNow() },
-                            appStateManager = appStateManager
-                        )
-                    }
-                }
+                AppNavigation(
+                    onStartCapture = { requestScreenCapture() },
+                    onPauseResume = { togglePause() },
+                    onOpenSettings = { openSettings() },
+                    onOpenUsageAccess = { openUsageAccessSettings() },
+                    onOpenAccessibility = { openAccessibilitySettings() },
+                    onRequestNotifications = {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                            requestPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                        }
+                    },
+                    onRunOcrNow = { runOcrNow() },
+                    onRunEmbeddingNow = { runEmbeddingNow() },
+                    appStateManager = appStateManager
+                )
             }
         }
     }
@@ -113,33 +117,26 @@ class MainActivity : ComponentActivity() {
         } else {
             appStateManager.pauseCapture()
         }
-        // Force recomposition
         recreate()
     }
 
     private fun openSettings() {
-        val intent = Intent(this, SettingsActivity::class.java)
-        startActivity(intent)
+        startActivity(Intent(this, SettingsActivity::class.java))
     }
 
     private fun openUsageAccessSettings() {
         try {
-            val intent = Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)
-            startActivity(intent)
+            startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
         } catch (e: Exception) {
-            // Fallback to general settings if specific path fails
-            val intent = Intent(Settings.ACTION_SETTINGS)
-            startActivity(intent)
+            startActivity(Intent(Settings.ACTION_SETTINGS))
         }
     }
 
     private fun openAccessibilitySettings() {
         try {
-            val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
-            startActivity(intent)
+            startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
         } catch (e: Exception) {
-            val intent = Intent(Settings.ACTION_SETTINGS)
-            startActivity(intent)
+            startActivity(Intent(Settings.ACTION_SETTINGS))
         }
     }
 
@@ -151,6 +148,81 @@ class MainActivity : ComponentActivity() {
         EmbeddingWorkScheduler.scheduleNow(this)
     }
 }
+
+// ── Root navigation ───────────────────────────────────────────────────────────
+
+@Composable
+private fun AppNavigation(
+    onStartCapture: () -> Unit,
+    onPauseResume: () -> Unit,
+    onOpenSettings: () -> Unit,
+    onOpenUsageAccess: () -> Unit,
+    onOpenAccessibility: () -> Unit,
+    onRequestNotifications: () -> Unit,
+    onRunOcrNow: () -> Unit,
+    onRunEmbeddingNow: () -> Unit,
+    appStateManager: AppStateManager
+) {
+    var selectedTab by remember { mutableIntStateOf(0) }
+
+    Scaffold(
+        bottomBar = {
+            NavigationBar(
+                containerColor = MaterialTheme.colorScheme.surfaceContainer
+            ) {
+                AppTab.entries.forEachIndexed { index, tab ->
+                    NavigationBarItem(
+                        selected = selectedTab == index,
+                        onClick = { selectedTab = index },
+                        icon = { Icon(tab.icon, contentDescription = tab.label) },
+                        label = { Text(tab.label) }
+                    )
+                }
+            }
+        }
+    ) { innerPadding ->
+        Surface(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding),
+            color = MaterialTheme.colorScheme.background
+        ) {
+            when (selectedTab) {
+                AppTab.HOME.ordinal -> {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .statusBarsPadding(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        MainScreen(
+                            onStartCapture = onStartCapture,
+                            onPauseResume = onPauseResume,
+                            onOpenSettings = onOpenSettings,
+                            onOpenUsageAccess = onOpenUsageAccess,
+                            onOpenAccessibility = onOpenAccessibility,
+                            onRequestNotifications = onRequestNotifications,
+                            onRunOcrNow = onRunOcrNow,
+                            onRunEmbeddingNow = onRunEmbeddingNow,
+                            appStateManager = appStateManager
+                        )
+                    }
+                }
+                AppTab.ASK.ordinal -> {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .statusBarsPadding()
+                    ) {
+                        AskScreen()
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ── MainScreen (unchanged from original) ─────────────────────────────────────
 
 @Composable
 fun MainScreen(
@@ -165,82 +237,82 @@ fun MainScreen(
     appStateManager: AppStateManager
 ) {
     val isPaused = remember { mutableStateOf(appStateManager.isPaused()) }
-    
-    Column(
+
+    androidx.compose.foundation.layout.Column(
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-        modifier = Modifier.fillMaxSize().padding(24.dp)
+        verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center,
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(24.dp)
     ) {
         Text(
             "OmniView Ingestion & OCR",
             style = MaterialTheme.typography.headlineMedium,
-            textAlign = TextAlign.Center
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center
         )
-        
-        Spacer(modifier = Modifier.height(32.dp))
 
-        Button(onClick = onStartCapture) {
+        androidx.compose.foundation.layout.Spacer(modifier = Modifier.height(32.dp))
+
+        androidx.compose.material3.Button(onClick = onStartCapture) {
             Text("Start Screenshot Service")
         }
-        
-        Spacer(modifier = Modifier.height(16.dp))
-        
-        Button(onClick = onPauseResume) {
+
+        androidx.compose.foundation.layout.Spacer(modifier = Modifier.height(16.dp))
+
+        androidx.compose.material3.Button(onClick = onPauseResume) {
             Text(if (isPaused.value) "Resume Capture" else "Pause Capture")
         }
-        
-        Spacer(modifier = Modifier.height(16.dp))
-        
-        Button(onClick = onOpenSettings) {
+
+        androidx.compose.foundation.layout.Spacer(modifier = Modifier.height(16.dp))
+
+        androidx.compose.material3.Button(onClick = onOpenSettings) {
             Text("Settings (Blacklist)")
         }
 
-        Spacer(modifier = Modifier.height(32.dp))
-        
-        Text(
-            "Detection Permissions",
-            style = MaterialTheme.typography.titleMedium
-        )
+        androidx.compose.foundation.layout.Spacer(modifier = Modifier.height(32.dp))
+
+        Text("Detection Permissions", style = MaterialTheme.typography.titleMedium)
         Text(
             "Required for app blacklisting to work properly",
             style = MaterialTheme.typography.bodySmall,
-            textAlign = TextAlign.Center,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
             modifier = Modifier.padding(top = 4.dp)
         )
-        
-        Spacer(modifier = Modifier.height(8.dp))
-        
-        Button(onClick = onOpenUsageAccess) {
+
+        androidx.compose.foundation.layout.Spacer(modifier = Modifier.height(8.dp))
+
+        androidx.compose.material3.Button(onClick = onOpenUsageAccess) {
             Text("Grant Usage Access")
         }
 
-        Spacer(modifier = Modifier.height(12.dp))
+        androidx.compose.foundation.layout.Spacer(modifier = Modifier.height(12.dp))
 
-        Button(onClick = onOpenAccessibility) {
+        androidx.compose.material3.Button(onClick = onOpenAccessibility) {
             Text("Enable Accessibility Service")
         }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            Spacer(modifier = Modifier.height(12.dp))
-            Button(onClick = onRequestNotifications) {
+            androidx.compose.foundation.layout.Spacer(modifier = Modifier.height(12.dp))
+            androidx.compose.material3.Button(onClick = onRequestNotifications) {
                 Text("Grant Notification Permission")
             }
         }
 
-        Spacer(modifier = Modifier.height(48.dp))
+        androidx.compose.foundation.layout.Spacer(modifier = Modifier.height(48.dp))
 
         Text("Developer Tools", style = MaterialTheme.typography.labelLarge)
-        
-        Spacer(modifier = Modifier.height(8.dp))
-        
-        Button(
+
+        androidx.compose.foundation.layout.Spacer(modifier = Modifier.height(8.dp))
+
+        androidx.compose.material3.Button(
             onClick = onRunOcrNow,
             modifier = Modifier.padding(bottom = 8.dp)
         ) {
             Text("Run OCR Processing Now")
         }
 
-        Button(
+        androidx.compose.material3.Button(
             onClick = onRunEmbeddingNow,
             modifier = Modifier.padding(bottom = 16.dp)
         ) {

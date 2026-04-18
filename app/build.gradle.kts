@@ -40,6 +40,11 @@ android {
     aaptOptions {
         noCompress += "tflite"
     }
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+        }
+    }
 }
 
 kotlin {
@@ -69,6 +74,12 @@ dependencies {
 
     // TFLite (on-device embedding inference via Play Services)
     implementation(libs.play.services.tflite.java)
+
+    // llama.cpp via pre-built AAR — runs GGUF models on-device
+    implementation(libs.llamacpp.kotlin)
+
+    // ViewModel for Compose
+    implementation(libs.lifecycle.viewmodel.compose)
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
