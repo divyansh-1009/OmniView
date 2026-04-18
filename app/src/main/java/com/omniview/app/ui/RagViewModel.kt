@@ -21,20 +21,34 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+import java.io.File
+
 // ── UI State ─────────────────────────────────────────────────────────────────
 
 enum class ModelStatus { NOT_LOADED, LOADING, READY, ERROR }
 
+enum class Role { USER, AI }
+
+data class ChatMessage(
+    val id: String = java.util.UUID.randomUUID().toString(),
+    val role: Role,
+    val text: String,
+    val isGenerating: Boolean = false,
+    val retrievedChunks: List<SearchResult> = emptyList(),
+    val timestamp: Long = System.currentTimeMillis()
+)
+
 data class RagUiState(
     val query: String = "",
-    val answer: String = "",
+    val messages: List<ChatMessage> = emptyList(),
     val isGenerating: Boolean = false,
     val modelStatus: ModelStatus = ModelStatus.NOT_LOADED,
     val modelError: String? = null,
-    val retrievedChunks: List<SearchResult> = emptyList(),
-    val showSources: Boolean = false,
-    val embeddingCount: Int = 0
+    val embeddingCount: Int = 0,
+    val databaseSizeMb: Float = 0f
 )
+
+
 
 // ── ViewModel ─────────────────────────────────────────────────────────────────
 
@@ -65,10 +79,11 @@ class RagViewModel(application: Application) : AndroidViewModel(application) {
     private var generationJob: Job? = null
 
     init {
-        // Refresh embedding count on start
+        // Refresh embedding count and DB size on start
         viewModelScope.launch(Dispatchers.IO) {
             val count = embeddingRepo.count()
-            _uiState.update { it.copy(embeddingCount = count) }
+            val sizeMb = calculateDatabaseSize()
+            _uiState.update { it.copy(embeddingCount = count, databaseSizeMb = sizeMb) }
         }
         
         // Let the ViewModel observe the underlying engine's state directly
@@ -94,10 +109,6 @@ class RagViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setQuery(q: String) {
         _uiState.update { it.copy(query = q) }
-    }
-
-    fun toggleSources() {
-        _uiState.update { it.copy(showSources = !it.showSources) }
     }
 
     /**
@@ -136,11 +147,15 @@ class RagViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         generationJob?.cancel()
+        
+        val userMsg = ChatMessage(role = Role.USER, text = query)
+        val aiMsg = ChatMessage(role = Role.AI, text = "", isGenerating = true)
+        
         _uiState.update {
             it.copy(
-                answer = "",
+                query = "",
                 isGenerating = true,
-                retrievedChunks = emptyList(),
+                messages = it.messages + userMsg + aiMsg,
                 modelError = null
             )
         }
@@ -164,12 +179,22 @@ class RagViewModel(application: Application) : AndroidViewModel(application) {
                     pipeline.query(query, allEmbeddings)
                 }
 
-                // Display retrieved chunks immediately
-                _uiState.update { it.copy(retrievedChunks = result.retrievedChunks) }
+                // Update AI message with retrieved chunks immediately
+                _uiState.update { state ->
+                    val updatedMessages = state.messages.map { msg ->
+                        if (msg.id == aiMsg.id) msg.copy(retrievedChunks = result.retrievedChunks) else msg
+                    }
+                    state.copy(messages = updatedMessages)
+                }
 
                 // 4. Stream tokens into the answer field
                 result.tokenFlow.collect { token ->
-                    _uiState.update { it.copy(answer = it.answer + token) }
+                    _uiState.update { state ->
+                        val updatedMessages = state.messages.map { msg ->
+                            if (msg.id == aiMsg.id) msg.copy(text = msg.text + token) else msg
+                        }
+                        state.copy(messages = updatedMessages)
+                    }
                 }
 
             } catch (e: Exception) {
@@ -178,7 +203,12 @@ class RagViewModel(application: Application) : AndroidViewModel(application) {
                     it.copy(modelError = "Generation failed: ${e.message}")
                 }
             } finally {
-                _uiState.update { it.copy(isGenerating = false) }
+                _uiState.update { state ->
+                    val updatedMessages = state.messages.map { msg ->
+                        if (msg.id == aiMsg.id) msg.copy(isGenerating = false) else msg
+                    }
+                    state.copy(isGenerating = false, messages = updatedMessages)
+                }
             }
         }
     }
@@ -191,5 +221,22 @@ class RagViewModel(application: Application) : AndroidViewModel(application) {
     override fun onCleared() {
         super.onCleared()
         generationJob?.cancel()
+    }
+
+    private fun calculateDatabaseSize(): Float {
+        val app = getApplication<Application>()
+        var totalBytes = 0L
+        val dbFiles = listOf(
+            "omniview_context",
+            "omniview_context-shm",
+            "omniview_context-wal"
+        )
+        dbFiles.forEach { dbName ->
+            val file = app.getDatabasePath(dbName)
+            if (file.exists()) {
+                totalBytes += file.length()
+            }
+        }
+        return totalBytes.toFloat() / (1024f * 1024f)
     }
 }
