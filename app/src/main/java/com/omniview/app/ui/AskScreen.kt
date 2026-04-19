@@ -21,6 +21,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -76,7 +77,10 @@ fun AskScreen(
             Spacer(Modifier.height(12.dp))
 
             // ── Header ──────────────────────────────────────────────────
-            AskHeader(onOpenDrawer = onOpenDrawer)
+            AskHeader(
+                onOpenDrawer = onOpenDrawer,
+                onClearChat = { viewModel.clearChat() }
+            )
 
             Spacer(Modifier.height(24.dp))
 
@@ -116,7 +120,7 @@ fun AskScreen(
 // ── Sub-composables ───────────────────────────────────────────────────────────
 
 @Composable
-private fun AskHeader(onOpenDrawer: () -> Unit) {
+private fun AskHeader(onOpenDrawer: () -> Unit, onClearChat: () -> Unit) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically
@@ -131,6 +135,9 @@ private fun AskHeader(onOpenDrawer: () -> Unit) {
             color = Color.White
         )
         Spacer(Modifier.weight(1f))
+        IconButton(onClick = onClearChat) {
+            Icon(Icons.Default.Delete, contentDescription = "Clear Chat", tint = Color.Gray)
+        }
     }
 }
 
@@ -229,13 +236,6 @@ private fun AIBubble(message: ChatMessage) {
                             fontSize = 15.sp,
                             lineHeight = 24.sp
                         )
-                    }
-
-                    if (message.retrievedChunks.isNotEmpty()) {
-                        Spacer(Modifier.height(16.dp))
-                        message.retrievedChunks.take(1).forEach { chunk ->
-                            SourceCardSmall(chunk)
-                        }
                     }
                 }
             }
