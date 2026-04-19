@@ -38,6 +38,9 @@ class ScreenshotService : Service() {
     private lateinit var appStateManager: AppStateManager
     private var lastScreenshotHash: Long? = null
 
+    private var lastBatteryLevel = -1
+    private var lastChargingState = false
+
     companion object {
         private const val TAG = "ScreenshotService"
         private const val NOTIFICATION_ID = 1
@@ -68,6 +71,32 @@ class ScreenshotService : Service() {
         }
     }
 
+    private val batteryReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (intent.action == Intent.ACTION_BATTERY_CHANGED) {
+                val status = intent.getIntExtra(BatteryManager.EXTRA_STATUS, -1)
+                val plugged = intent.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0)
+                val isCharging = plugged != 0 && (status == BatteryManager.BATTERY_STATUS_CHARGING || status == BatteryManager.BATTERY_STATUS_FULL)
+                val level = intent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
+                val scale = intent.getIntExtra(BatteryManager.EXTRA_SCALE, -1)
+                val batteryPct = if (scale > 0) (level * 100 / scale) else 0
+
+                val conditionsMet = isCharging && batteryPct >= 80
+                val wasMet = lastChargingState && lastBatteryLevel >= 80
+
+                // If conditions just became met, flush queues
+                if (conditionsMet && !wasMet) {
+                    Log.i(TAG, "Battery conditions newly met ($batteryPct%, charging). Flushing queues.")
+                    if (OcrQueue.size(context) > 0) com.omniview.app.intelligence.OcrWorkScheduler.schedule(context)
+                    if (com.omniview.app.intelligence.EmbeddingQueue.size(context) > 0) com.omniview.app.intelligence.EmbeddingWorkScheduler.schedule(context)
+                }
+                
+                lastBatteryLevel = batteryPct
+                lastChargingState = isCharging
+            }
+        }
+    }
+
     override fun onCreate() {
         super.onCreate()
         Log.i(TAG, "Service onCreate")
@@ -79,9 +108,12 @@ class ScreenshotService : Service() {
             addAction(Intent.ACTION_SCREEN_OFF)
         }
         registerReceiver(screenStateReceiver, filter)
+        registerReceiver(batteryReceiver, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
         
         createNotificationChannel()
     }
+
+    private var projectionCallback: MediaProjection.Callback? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val resultCode = intent?.getIntExtra("resultCode", Activity.RESULT_CANCELED) ?: Activity.RESULT_CANCELED
@@ -93,17 +125,27 @@ class ScreenshotService : Service() {
 
             Log.i(TAG, "Initializing MediaProjection session")
             val projectionManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+            
+            // Clean up old projection to prevent its onStop from killing the new one
+            projectionCallback?.let { mediaProjection?.unregisterCallback(it) }
+            mediaProjection?.stop()
+            mediaProjection = null
+            
             mediaProjection = projectionManager.getMediaProjection(resultCode, data)
             
-            mediaProjection?.registerCallback(object : MediaProjection.Callback() {
+            projectionCallback = object : MediaProjection.Callback() {
                 override fun onStop() {
                     super.onStop()
+                    // Ignore callbacks from old revoked projections
+                    if (this != projectionCallback) return
+                    
                     Log.w(TAG, "MediaProjection revoked by system")
                     isProjectionRevoked = true
                     releaseVirtualDisplay()
                     updateNotification()
                 }
-            }, handler)
+            }
+            mediaProjection?.registerCallback(projectionCallback!!, handler)
 
             initializeVirtualDisplay()
             startCaptureLoop()
@@ -269,6 +311,11 @@ class ScreenshotService : Service() {
                     bitmap.compress(Bitmap.CompressFormat.PNG, 100, outputStream)
                     Log.i(TAG, "Screenshot saved: $uri ($packageName)")
                     OcrQueue.enqueue(this, PendingOcrItem(uri.toString(), packageName, System.currentTimeMillis()))
+                    
+                    if (lastChargingState && lastBatteryLevel >= 80) {
+                        Log.d(TAG, "Conditions met during capture, scheduling OCR processing immediately")
+                        com.omniview.app.intelligence.OcrWorkScheduler.schedule(this)
+                    }
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to save screenshot", e)
@@ -343,6 +390,7 @@ class ScreenshotService : Service() {
         Log.i(TAG, "Service onDestroy - cleaning up")
         isRunning = false
         unregisterReceiver(screenStateReceiver)
+        unregisterReceiver(batteryReceiver)
         handler.removeCallbacksAndMessages(null)
         releaseVirtualDisplay()
         mediaProjection?.stop()
